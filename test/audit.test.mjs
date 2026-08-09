@@ -140,6 +140,26 @@ test("an unreadable policy exits 2, never 1", async () => {
   }
 });
 
+test("validate on a directory that does not exist exits 2, not 0", async () => {
+  // The worst false green available: point the tool at the wrong path and an earlier version
+  // answered "fine, exit 0" because it had nothing to complain about. Nothing was judged, so nothing
+  // may pass.
+  const { code, stderr } = await cli("validate", path.join(os.tmpdir(), "bs-does-not-exist-9f2a"));
+  assert.equal(code, 2, `expected exit 2 for a missing target, got ${code}`);
+  assert.match(stderr, /no readable project-policy\.yml/);
+});
+
+test("validate on a directory with no policy exits 2 and says nothing was evaluated", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "bs-nopolicy-"));
+  try {
+    const { code, stderr } = await cli("validate", dir);
+    assert.equal(code, 2);
+    assert.match(stderr, /Nothing was evaluated, so nothing can be reported as compliant/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("an unknown rule id exits 1 from explain", async () => {
   const { code, stderr } = await cli("explain", "bankroll.no-such-rule");
   assert.equal(code, 1);

@@ -309,6 +309,18 @@ async function runValidate(plan, { json }) {
     return EXIT_INVOCATION;
   }
 
+  // No policy at all — a missing file, or a directory that does not exist. This is exit 2, not a
+  // verdict, and getting it wrong is the worst false green available: point the tool at the wrong
+  // directory and an earlier version answered "fine, exit 0" because it had nothing to complain
+  // about. Nothing was judged, so nothing may pass.
+  if (!plan.hasPolicy) {
+    process.stderr.write(
+      `standards validate: no readable project-policy.yml in ${plan.dir}\n` +
+        "Nothing was evaluated, so nothing can be reported as compliant. Run `standards init` first.\n",
+    );
+    return EXIT_INVOCATION;
+  }
+
   const evidence = await gatherEvidence(plan);
   const today = new Date().toISOString().slice(0, 10);
   const verdict = evaluate({
@@ -334,6 +346,9 @@ async function runValidate(plan, { json }) {
     process.stdout.write(renderVerdict(out, evidence));
   }
 
+  // NOT_EVALUATED never exits 0. It means nothing was judged, and a gate that passes when nothing was
+  // judged is the false green this whole framework exists to prevent.
+  if (out.status === STATUS.NOT_EVALUATED) return EXIT_INVOCATION;
   return out.status === STATUS.NON_COMPLIANT || out.status === STATUS.BLOCKED_BY_INVARIANT ? EXIT_VERDICT : EXIT_OK;
 }
 
