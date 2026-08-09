@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260809-004",
+  "decision": {
+    "recordedAt": "2026-08-09T17:45:00-04:00",
+    "event": {
+      "description": "Tampa Tarpons vs Halifax Harbour — regular season",
+      "market": "moneyline",
+      "selection": "Tampa Tarpons",
+      "eventStartsAt": "2026-08-09T21:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.62,
+      "source": "team-strength model v3, run 2026-08-08T20:00Z",
+      "predictedAt": "2026-08-08T20:00:00-04:00",
+      "rationale": "The model gave Tampa 0.62 when it ran, before the starting pitcher was announced."
+    },
+    "market": {
+      "book": "ExampleBook",
+      "capturedAt": "2026-08-09T17:40:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.833333,
+        "american": -120
+      },
+      "fullMarket": [
+        {
+          "selection": "Tampa Tarpons",
+          "decimal": 1.833333
+        },
+        {
+          "selection": "Halifax Harbour",
+          "decimal": 2
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.2,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-09T17:40:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": null,
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.545455,
+      "overround": 0.045455,
+      "marketFairProb": 0.521739,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.074545,
+      "adjustedEdge": 0.059636,
+      "adjustedProb": 0.605091,
+      "evPerUnit": 0.109333,
+      "kellyFullFraction": 0.1312,
+      "recommendedStake": 300,
+      "stake": 0,
+      "stakePercentOfBankroll": 0,
+      "groupExposureAfter": 0,
+      "totalExposureAfter": 0
+    },
+    "decision": "PASS",
+    "passReasons": [
+      "stale-prediction"
+    ],
+    "rationale": "The arithmetic says there is an edge. The prediction is nearly 22 hours old and predates the lineup announcement, so the 0.62 describes a world that no longer exists. A stale estimate with an apparent edge is the most dangerous kind: the number looks like evidence and is not."
+  },
+  "integrity": {
+    "decisionDigest": "dda0a25e079e3981ed4e09121f74d179ca5d54826d8341fa514a0c24544b2d67"
+  }
+}

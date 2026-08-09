@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260809-001",
+  "decision": {
+    "recordedAt": "2026-08-09T14:05:00-04:00",
+    "event": {
+      "description": "Portland Rain vs Sacramento Kings — regular season",
+      "market": "moneyline",
+      "selection": "Portland Rain",
+      "eventStartsAt": "2026-08-09T19:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.58,
+      "source": "team-strength model v3, run 2026-08-09T13:40Z",
+      "predictedAt": "2026-08-09T13:40:00-04:00",
+      "rationale": "Opponent on the second night of a back-to-back; the model gives Portland 0.58 with a stated range of 0.55 to 0.61."
+    },
+    "market": {
+      "book": "ExampleBook",
+      "capturedAt": "2026-08-09T14:00:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.909091,
+        "american": -110
+      },
+      "fullMarket": [
+        {
+          "selection": "Portland Rain",
+          "decimal": 1.909091
+        },
+        {
+          "selection": "Sacramento Kings",
+          "decimal": 1.909091
+        }
+      ],
+      "lineHistory": [
+        {
+          "capturedAt": "2026-08-09T09:00:00-04:00",
+          "decimal": 1.952381,
+          "source": "ExampleBook open"
+        },
+        {
+          "capturedAt": "2026-08-09T12:00:00-04:00",
+          "decimal": 1.925926,
+          "source": "ExampleBook"
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.3,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-09T14:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": "2026-08-09-portland-slate",
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.523809,
+      "overround": 0.047619,
+      "marketFairProb": 0.5,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.056191,
+      "adjustedEdge": 0.039333,
+      "adjustedProb": 0.563143,
+      "evPerUnit": 0.075091,
+      "kellyFullFraction": 0.0826,
+      "recommendedStake": 206.5,
+      "stake": 206.5,
+      "stakePercentOfBankroll": 0.02065,
+      "groupExposureAfter": 206.5,
+      "totalExposureAfter": 206.5
+    },
+    "decision": "BET",
+    "passReasons": [],
+    "rationale": "The model's 0.58 against a market fair price of 0.50 is a real edge, and it survives a 30% haircut for model error. Quarter Kelly on the discounted probability sizes this well inside the single-bet cap."
+  },
+  "integrity": {
+    "decisionDigest": "1390e05430e865002e69667576b24c40965cce055e9b834665e6c2d394362d16"
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260809-002",
+  "decision": {
+    "recordedAt": "2026-08-09T15:10:00-04:00",
+    "event": {
+      "description": "Austin Armadillos vs Denver Peaks — regular season",
+      "market": "moneyline",
+      "selection": "Austin Armadillos",
+      "eventStartsAt": "2026-08-09T20:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.55,
+      "source": "team-strength model v3, run 2026-08-09T15:00Z",
+      "predictedAt": "2026-08-09T15:00:00-04:00",
+      "rationale": "The model gives Austin 0.55, with a wide range of 0.50 to 0.60 because two starters are questionable."
+    },
+    "market": {
+      "book": "ExampleBook",
+      "capturedAt": "2026-08-09T15:05:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.869565,
+        "american": -115
+      },
+      "fullMarket": [
+        {
+          "selection": "Austin Armadillos",
+          "decimal": 1.869565
+        },
+        {
+          "selection": "Denver Peaks",
+          "decimal": 1.952381
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.5,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-09T15:00:00-04:00"
+    },
+    "openExposure": [
+      {
+        "decisionId": "DEC-20260809-001",
+        "stake": 137.5,
+        "correlationGroup": "2026-08-09-portland-slate"
+      }
+    ],
+    "correlationGroup": "2026-08-09-austin-slate",
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.534884,
+      "overround": 0.047079,
+      "marketFairProb": 0.510834,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.015116,
+      "adjustedEdge": 0.007558,
+      "adjustedProb": 0.542442,
+      "evPerUnit": 0.01413,
+      "kellyFullFraction": 0.01625,
+      "recommendedStake": 40.62,
+      "stake": 0,
+      "stakePercentOfBankroll": 0,
+      "groupExposureAfter": 0,
+      "totalExposureAfter": 137.5
+    },
+    "decision": "PASS",
+    "passReasons": [
+      "edge-below-minimum"
+    ],
+    "rationale": "There is a raw edge here, but the lineup uncertainty is real and a 50% haircut leaves it under the 2% minimum. Passing is the correct outcome, not a missed opportunity: an edge inside your own error bar is noise."
+  },
+  "integrity": {
+    "decisionDigest": "4fa83b04e8e2da511f72f427caac7df2b4a8443cfd7558003c52390717fa3353"
+  }
+}

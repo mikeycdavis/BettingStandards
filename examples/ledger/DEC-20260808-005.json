@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260808-005",
+  "decision": {
+    "recordedAt": "2026-08-08T18:05:00-04:00",
+    "event": {
+      "description": "Boston Bay vs Montreal Mont — regular season",
+      "market": "moneyline",
+      "selection": "Boston Bay",
+      "eventStartsAt": "2026-08-08T22:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.57,
+      "source": "team-strength model v3, run 2026-08-08T17:50Z",
+      "predictedAt": "2026-08-08T17:50:00-04:00",
+      "rationale": "Model gives Boston 0.57 with a range of 0.54 to 0.60."
+    },
+    "market": {
+      "book": "ExampleBook",
+      "capturedAt": "2026-08-08T18:00:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.952381,
+        "american": -105
+      },
+      "fullMarket": [
+        {
+          "selection": "Boston Bay",
+          "decimal": 1.952381
+        },
+        {
+          "selection": "Montreal Mont",
+          "decimal": 1.869565
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.3,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-08T18:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": "2026-08-08-boston-slate",
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.512195,
+      "overround": 0.047079,
+      "marketFairProb": 0.489166,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.057805,
+      "adjustedEdge": 0.040463,
+      "adjustedProb": 0.552659,
+      "evPerUnit": 0.079,
+      "kellyFullFraction": 0.08295,
+      "recommendedStake": 207.38,
+      "stake": 207.38,
+      "stakePercentOfBankroll": 0.020738,
+      "groupExposureAfter": 207.38,
+      "totalExposureAfter": 207.38
+    },
+    "decision": "BET",
+    "passReasons": [],
+    "rationale": "A 0.57 estimate at a price implying 0.512 leaves an edge that survives a 30% haircut."
+  },
+  "integrity": {
+    "decisionDigest": "344357e3e42dc158d827889a5bce8f940f02061f39d4eca3b5b585494a1df288"
+  },
+  "outcome": {
+    "closingDecimal": 1.869565,
+    "closingCapturedAt": "2026-08-08T21:58:00-04:00",
+    "result": "loss",
+    "settledAt": "2026-08-09T00:40:00-04:00",
+    "processReview": "The wager lost. The process was sound: the price taken was better than the close, which is evidence the estimate found something the market later agreed with. Nothing about this record should change because of the result.",
+    "clvPct": 0.044297,
+    "profitUnits": -207.38
+  }
+}

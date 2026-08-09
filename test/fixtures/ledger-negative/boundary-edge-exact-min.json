@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260810-001",
+  "decision": {
+    "recordedAt": "2026-08-10T14:05:00-04:00",
+    "event": {
+      "description": "Fixture Home vs Fixture Away",
+      "market": "moneyline",
+      "selection": "Fixture Home",
+      "eventStartsAt": "2026-08-10T19:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.548809,
+      "source": "fixture model v1, run 2026-08-10T13:40Z",
+      "predictedAt": "2026-08-10T13:40:00-04:00"
+    },
+    "market": {
+      "book": "FixtureBook",
+      "capturedAt": "2026-08-10T14:00:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.909091,
+        "american": -110
+      },
+      "fullMarket": [
+        {
+          "selection": "Fixture Home",
+          "decimal": 1.909091
+        },
+        {
+          "selection": "Fixture Away",
+          "decimal": 1.909091
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.2,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-10T14:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": null,
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.523809,
+      "overround": 0.047619,
+      "marketFairProb": 0.5,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.025,
+      "adjustedEdge": 0.02,
+      "adjustedProb": 0.543809,
+      "evPerUnit": 0.038181,
+      "kellyFullFraction": 0.041999,
+      "recommendedStake": 105,
+      "stake": 105,
+      "stakePercentOfBankroll": 0.0105,
+      "groupExposureAfter": 105,
+      "totalExposureAfter": 105
+    },
+    "decision": "BET",
+    "passReasons": [],
+    "rationale": "An edge landing exactly on the minimum. A tie meets the threshold, so this is a BET."
+  },
+  "integrity": {
+    "decisionDigest": "4a04ad27098fb68631dba7f288dcf9846ab6c2501a684ea175abdcb85334b181"
+  }
+}

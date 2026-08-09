@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260810-001",
+  "decision": {
+    "recordedAt": "2026-08-10T14:05:00-04:00",
+    "event": {
+      "description": "Fixture Home vs Fixture Away",
+      "market": "moneyline",
+      "selection": "Fixture Third Party",
+      "eventStartsAt": "2026-08-10T19:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.58,
+      "source": "fixture model v1, run 2026-08-10T13:40Z",
+      "predictedAt": "2026-08-10T13:40:00-04:00"
+    },
+    "market": {
+      "book": "FixtureBook",
+      "capturedAt": "2026-08-10T14:00:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.909091,
+        "american": -110
+      },
+      "fullMarket": [
+        {
+          "selection": "Fixture Home",
+          "decimal": 1.909091
+        },
+        {
+          "selection": "Fixture Away",
+          "decimal": 1.909091
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.3,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-10T14:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": null,
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.523809,
+      "overround": 0.047619,
+      "marketFairProb": 0.5,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.056191,
+      "adjustedEdge": 0.039333,
+      "adjustedProb": 0.563143,
+      "evPerUnit": 0.075091,
+      "kellyFullFraction": 0.0826,
+      "recommendedStake": 206.5,
+      "stake": 206.5,
+      "stakePercentOfBankroll": 0.02065,
+      "groupExposureAfter": 206.5,
+      "totalExposureAfter": 206.5
+    },
+    "decision": "BET",
+    "passReasons": [],
+    "rationale": "An edge and an EV are stated for a selection that does not appear in the recorded market."
+  },
+  "integrity": {
+    "decisionDigest": "6c63f172191f61cfaad555a15092f54440c5e3bc0d6fee0683d691fe4889969c"
+  }
+}

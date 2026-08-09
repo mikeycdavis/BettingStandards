@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260811-003",
+  "decision": {
+    "recordedAt": "2026-08-11T13:05:00-04:00",
+    "event": {
+      "description": "Fixture Sequence Game 3",
+      "market": "moneyline",
+      "selection": "Fixture Home",
+      "eventStartsAt": "2026-08-11T23:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.58,
+      "source": "fixture model v1",
+      "predictedAt": "2026-08-11T13:00:00-04:00"
+    },
+    "market": {
+      "book": "FixtureBook",
+      "capturedAt": "2026-08-11T13:00:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.909091,
+        "american": -110
+      },
+      "fullMarket": [
+        {
+          "selection": "Fixture Home",
+          "decimal": 1.909091
+        },
+        {
+          "selection": "Fixture Away",
+          "decimal": 1.909091
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.3,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-10T14:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": null,
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.523809,
+      "overround": 0.047619,
+      "marketFairProb": 0.5,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.056191,
+      "adjustedEdge": 0.039333,
+      "adjustedProb": 0.563143,
+      "evPerUnit": 0.075091,
+      "kellyFullFraction": 0.0826,
+      "recommendedStake": 206.5,
+      "stake": 400,
+      "stakePercentOfBankroll": 0.04,
+      "groupExposureAfter": 400,
+      "totalExposureAfter": 400
+    },
+    "decision": "BET",
+    "passReasons": [],
+    "rationale": "Wager 3 of the escalation sequence."
+  },
+  "integrity": {
+    "decisionDigest": "2c3a0ea2336382926b6bd858caebad6c2dd765295d31db9dc5b2e8dbadedb1a1"
+  },
+  "outcome": {
+    "result": "loss",
+    "settledAt": "2026-08-11T23:30:00-04:00",
+    "profitUnits": -400
+  }
+}

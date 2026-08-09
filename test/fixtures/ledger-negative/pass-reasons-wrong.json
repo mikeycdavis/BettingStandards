@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260810-001",
+  "decision": {
+    "recordedAt": "2026-08-10T14:05:00-04:00",
+    "event": {
+      "description": "Fixture Home vs Fixture Away",
+      "market": "moneyline",
+      "selection": "Fixture Home",
+      "eventStartsAt": "2026-08-10T19:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.53,
+      "source": "fixture model v1, run 2026-08-10T13:40Z",
+      "predictedAt": "2026-08-10T13:40:00-04:00"
+    },
+    "market": {
+      "book": "FixtureBook",
+      "capturedAt": "2026-08-10T14:00:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.909091,
+        "american": -110
+      },
+      "fullMarket": [
+        {
+          "selection": "Fixture Home",
+          "decimal": 1.909091
+        },
+        {
+          "selection": "Fixture Away",
+          "decimal": 1.909091
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.5,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-10T14:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": null,
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.523809,
+      "overround": 0.047619,
+      "marketFairProb": 0.5,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.006191,
+      "adjustedEdge": 0.003095,
+      "adjustedProb": 0.526905,
+      "evPerUnit": 0.005909,
+      "kellyFullFraction": 0.0065,
+      "recommendedStake": 16.25,
+      "stake": 0,
+      "stakePercentOfBankroll": 0,
+      "groupExposureAfter": 0,
+      "totalExposureAfter": 0
+    },
+    "decision": "PASS",
+    "passReasons": [
+      "discretionary"
+    ],
+    "rationale": "A PASS recorded as a matter of taste when in fact the edge failed the minimum."
+  },
+  "integrity": {
+    "decisionDigest": "6c202a41939228b06db46a58e36627ca7cf758ae04b3225e4c28edb784888236"
+  }
+}

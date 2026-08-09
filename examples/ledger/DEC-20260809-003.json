@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260809-003",
+  "decision": {
+    "recordedAt": "2026-08-09T16:20:00-04:00",
+    "event": {
+      "description": "Portland Rain vs Sacramento Kings — total points",
+      "market": "total",
+      "selection": "Over 214.5",
+      "eventStartsAt": "2026-08-09T19:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.6,
+      "source": "pace-and-efficiency model v2, run 2026-08-09T16:10Z",
+      "predictedAt": "2026-08-09T16:10:00-04:00",
+      "rationale": "Both teams play fast and Sacramento's defensive rating has fallen over the last ten games."
+    },
+    "market": {
+      "book": "ExampleBook",
+      "capturedAt": "2026-08-09T16:15:00-04:00",
+      "offered": {
+        "format": "american",
+        "decimal": 1.909091,
+        "american": -110
+      },
+      "fullMarket": [
+        {
+          "selection": "Over 214.5",
+          "decimal": 1.909091
+        },
+        {
+          "selection": "Under 214.5",
+          "decimal": 1.909091
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.25,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-09T16:15:00-04:00"
+    },
+    "openExposure": [
+      {
+        "decisionId": "DEC-20260809-001",
+        "stake": 137.5,
+        "correlationGroup": "2026-08-09-portland-slate"
+      },
+      {
+        "decisionId": "DEC-20260808-004",
+        "stake": 420,
+        "correlationGroup": "2026-08-09-portland-slate"
+      }
+    ],
+    "correlationGroup": "2026-08-09-portland-slate",
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.523809,
+      "overround": 0.047619,
+      "marketFairProb": 0.5,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.076191,
+      "adjustedEdge": 0.057143,
+      "adjustedProb": 0.580952,
+      "evPerUnit": 0.109091,
+      "kellyFullFraction": 0.12,
+      "recommendedStake": 300,
+      "stake": 0,
+      "stakePercentOfBankroll": 0,
+      "groupExposureAfter": 557.5,
+      "totalExposureAfter": 557.5
+    },
+    "decision": "PASS",
+    "passReasons": [
+      "group-exposure-cap"
+    ],
+    "rationale": "The edge is genuine and would justify a wager on its own. It is not on its own: this total is driven by the same game as an open position, so the stakes count together, and taking it would push the group past its cap. The edge is not the only question."
+  },
+  "integrity": {
+    "decisionDigest": "86f9ec8c0665d372f898f0829a43b0e6847467d072ffa2afb0e0a03107b22bc0"
+  }
+}

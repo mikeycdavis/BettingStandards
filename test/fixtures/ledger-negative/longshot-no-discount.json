@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "1.0",
+  "id": "DEC-20260810-001",
+  "decision": {
+    "recordedAt": "2026-08-10T14:05:00-04:00",
+    "event": {
+      "description": "Fixture Home vs Fixture Away",
+      "market": "moneyline",
+      "selection": "Fixture Home",
+      "eventStartsAt": "2026-08-10T19:00:00-04:00"
+    },
+    "prediction": {
+      "fairProb": 0.2,
+      "source": "fixture model v1, run 2026-08-10T13:40Z",
+      "predictedAt": "2026-08-10T13:40:00-04:00"
+    },
+    "market": {
+      "book": "FixtureBook",
+      "capturedAt": "2026-08-10T14:00:00-04:00",
+      "offered": {
+        "format": "decimal",
+        "decimal": 8
+      },
+      "fullMarket": [
+        {
+          "selection": "Fixture Home",
+          "decimal": 8
+        },
+        {
+          "selection": "Fixture Away",
+          "decimal": 1.16
+        }
+      ]
+    },
+    "uncertaintyDiscount": 0.05,
+    "bankroll": {
+      "current": 10000,
+      "unit": "USD",
+      "asOf": "2026-08-10T14:00:00-04:00"
+    },
+    "openExposure": [],
+    "correlationGroup": null,
+    "policyRef": {
+      "path": "betting-policy.yml",
+      "digest": "5dd0cae158f425a713a46a804fd4b183aeeb1d3f7669424bdb220e0a44689984"
+    },
+    "derived": {
+      "impliedProb": 0.125,
+      "overround": -0.012931,
+      "marketFairProb": 0.126638,
+      "vigMethod": "multiplicative",
+      "rawEdge": 0.075,
+      "adjustedEdge": 0.07125,
+      "adjustedProb": 0.19625,
+      "evPerUnit": 0.57,
+      "kellyFullFraction": 0.081429,
+      "recommendedStake": 203.57,
+      "stake": 100,
+      "stakePercentOfBankroll": 0.01,
+      "groupExposureAfter": 100,
+      "totalExposureAfter": 100
+    },
+    "decision": "BET",
+    "passReasons": [],
+    "rationale": "A long price taken without the discount the policy requires at those odds."
+  },
+  "integrity": {
+    "decisionDigest": "97ed00a4c248a411314cdfd67e23d55b8af69988cc5b7192cecf90aec2c36565"
+  }
+}

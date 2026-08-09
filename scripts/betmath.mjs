@@ -39,14 +39,24 @@ export const EPS = 1e-9;
 /**
  * Tolerance when comparing a recomputed value against a RECORDED one.
  *
- * Records carry probabilities at 6 decimal places, so a correctly rounded value can differ from the
- * true value by at most 5e-7. Anything beyond that is not rounding — it is a different calculation,
- * which is exactly what the checker is looking for.
+ * Records carry probabilities at 6 decimal places, so a correctly rounded value differs from the true
+ * value by at most 5e-7. Anything beyond that is not rounding — it is a different calculation, which
+ * is exactly what the checker is looking for.
+ *
+ * The trailing slack matters and was added after a real failure. A value landing exactly on a
+ * rounding boundary (40.625 recorded as 40.63) differs from the true value by *precisely* the
+ * half-unit, and in binary floating point the subtraction lands a hair above it — so a tolerance of
+ * exactly half a unit rejects correctly rounded values. The slack is far too small to admit any real
+ * miscalculation: the smallest meaningful arithmetic error is orders of magnitude larger.
+ *
+ * It also means the checker accepts either rounding direction at a boundary, which is deliberate. The
+ * job is to catch a different calculation, not to impose one rounding convention on every tool that
+ * might produce a record.
  */
-export const TOL_PROB = 5e-7;
+export const TOL_PROB = 5e-7 + 1e-12;
 
-/** The same idea for money, recorded at 2 decimal places: half a cent. */
-export const TOL_MONEY = 0.005;
+/** The same idea for money, recorded at 2 decimal places: half a cent, plus the same slack. */
+export const TOL_MONEY = 0.005 + 1e-9;
 
 /** Decimal places for each recorded kind. The record format and the checker both read these. */
 export const DP_PROB = 6;
