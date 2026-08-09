@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BettingStandards/schemas/betting-policy.schema.json",
+  "title": "Betting Policy",
+  "description": "The thresholds and caps a project's wagering decisions are judged against. Separate from project-policy.yml on purpose: that file says which RULES apply to this project, this one says what the NUMBERS are. Mixing them would put a bankroll figure and a rule waiver in the same document, and they are reviewed by different people for different reasons. Every value is written as a string and constrained by pattern, because the YAML parser this repository uses returns all scalars as strings so that a pattern can be checked before anything coerces; scripts/policy.mjs performs the single conversion to number. Each decision record pins the digest of the policy it was decided under, so changing a threshold here never retroactively re-judges past decisions.",
+  "type": "object",
+  "required": [
+    "minEdge",
+    "kellyMultiplier",
+    "unitPercent",
+    "maxSingleBetPct",
+    "maxGroupExposurePct",
+    "maxTotalExposurePct",
+    "maxOddsAgeMinutes",
+    "maxPredictionAgeMinutes",
+    "longshotOddsThreshold",
+    "longshotMinDiscount"
+  ],
+  "additionalProperties": false,
+
+  "properties": {
+    "minEdge": {
+      "description": "The smallest edge, AFTER the uncertainty discount, that may support a BET. Anything at or above passes the gate; anything below is a PASS. This is the number that keeps a thin, uncertain edge from becoming a wager, and it should exceed what transaction costs and estimation error consume — an edge smaller than your own error bar is noise (Standard 10 R1).",
+      "type": "string",
+      "pattern": "^0\\.[0-9]{1,6}$"
+    },
+    "kellyMultiplier": {
+      "description": "The fraction of full Kelly to stake, in (0, 1]. Full Kelly is optimal only if the probability estimate is exactly right; it is an estimate, so fractional Kelly is the standard response to being wrong. Values around 0.25 are common (Standard 12 R2).",
+      "type": "string",
+      "pattern": "^(0\\.[0-9]{1,6}|1(\\.0{1,6})?)$"
+    },
+    "unitPercent": {
+      "description": "One unit as a fraction of bankroll, e.g. 0.01 for 1%. The unit exists so stakes can be discussed without reference to a bankroll figure (Standard 12 R1).",
+      "type": "string",
+      "pattern": "^0\\.[0-9]{1,6}$"
+    },
+    "maxSingleBetPct": {
+      "description": "The hard ceiling on any one stake as a fraction of bankroll, applied even when Kelly recommends more. Kelly optimises growth under a correct estimate; this bounds the damage from an incorrect one (Standard 13 R1).",
+      "type": "string",
+      "pattern": "^0\\.[0-9]{1,6}$"
+    },
+    "maxGroupExposurePct": {
+      "description": "The ceiling on total stake within one correlation group. Correlated wagers are one wager wearing several tickets, and this is the cap that says so (Standard 14 R2).",
+      "type": "string",
+      "pattern": "^0\\.[0-9]{1,6}$"
+    },
+    "maxTotalExposurePct": {
+      "description": "The ceiling on all open stake at once, as a fraction of bankroll (Standard 13 R2).",
+      "type": "string",
+      "pattern": "^0\\.[0-9]{1,6}$"
+    },
+    "maxOddsAgeMinutes": {
+      "description": "How old a price snapshot may be when a decision is recorded. Beyond this the price is a memory rather than an offer, and an edge computed against it is an edge against a number that may no longer exist (Standard 15, Standard 16 R1).",
+      "type": "string",
+      "pattern": "^[0-9]{1,5}$"
+    },
+    "maxPredictionAgeMinutes": {
+      "description": "How old the probability estimate may be when a decision is recorded. A prediction has a shelf life: news, lineups, and weather all expire it (Standard 16 R1).",
+      "type": "string",
+      "pattern": "^[0-9]{1,6}$"
+    },
+    "longshotOddsThreshold": {
+      "description": "Decimal odds at or above which the longshot floor applies. The proportional vig-removal method this pack uses overstates the fair probability of long prices, because books load more margin onto them; rather than hide that, the method's known bias gets a mechanical guard (Standard 9 R5).",
+      "type": "string",
+      "pattern": "^[0-9]{1,3}(\\.[0-9]{1,6})?$"
+    },
+    "longshotMinDiscount": {
+      "description": "The minimum uncertainty discount required when the price is at or above longshotOddsThreshold.",
+      "type": "string",
+      "pattern": "^0\\.[0-9]{1,6}$"
+    },
+    "note": {
+      "description": "Free text: why these numbers, and when they were last reviewed.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

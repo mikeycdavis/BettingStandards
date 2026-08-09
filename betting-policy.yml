@@ -1,0 +1,46 @@
+# The thresholds and caps this repository's worked examples are judged against.
+#
+# This repository places no wagers. These numbers exist so examples/ledger/ can be checked by the same
+# code an adopting project runs, and so there is a concrete policy to copy from templates/. They are
+# deliberately ordinary rather than aggressive: a worked example should demonstrate the shape of a
+# disciplined decision, not a clever one.
+#
+# Every value is a string. The YAML parser used here returns all scalars as strings on purpose, so a
+# pattern can be checked before anything coerces; scripts/policy.mjs performs the single conversion.
+#
+# Changing a number here does NOT re-judge past decisions. Every decision record pins the digest of
+# the policy it was made under, so a relaxed threshold makes old records visibly decisions taken under
+# different rules rather than decisions that retroactively became acceptable.
+
+# A 2% edge after discounting. Below this, the edge is inside the error bar of the estimate that
+# produced it, and betting it is betting on noise.
+minEdge: "0.02"
+
+# Quarter Kelly. Full Kelly is optimal only if the probability is exactly right; it never is.
+kellyMultiplier: "0.25"
+
+# One unit is 1% of bankroll.
+unitPercent: "0.01"
+
+# No single wager risks more than 3% of bankroll, whatever Kelly says.
+maxSingleBetPct: "0.03"
+
+# Correlated wagers count together. Three bets on the same game are one bet on that game.
+maxGroupExposurePct: "0.06"
+
+# No more than 15% of bankroll at risk at any moment.
+maxTotalExposurePct: "0.15"
+
+# A price older than fifteen minutes is a memory, not an offer.
+maxOddsAgeMinutes: "15"
+
+# A prediction older than twelve hours has outlived most of what could change it.
+maxPredictionAgeMinutes: "720"
+
+# At decimal 6.0 or longer, the proportional devig method overstates the fair probability, so a
+# minimum 20% uncertainty discount applies. This is the mechanical guard on a known bias in the
+# method, kept visible rather than buried in the maths.
+longshotOddsThreshold: "6.0"
+longshotMinDiscount: "0.20"
+
+note: "Reviewed 2026-08-09. Illustrative values for this repository's worked examples; an adopting project must set its own."

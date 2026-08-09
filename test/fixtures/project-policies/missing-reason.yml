@@ -1,0 +1,4 @@
+standardVersion: "1.0.0"
+applicability:
+  vig.overround-computed:
+    status: not-applicable

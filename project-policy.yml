@@ -1,0 +1,164 @@
+# This repository's own policy, and the first thing an adopter should read after the templates.
+#
+# The honest situation: this repository DEFINES the betting standards and places no wagers. It has no
+# bankroll, no book, and no open positions. So most of the operational rules have no subject here, and
+# the correct declaration is `not-applicable` with a reason — not an exception.
+#
+# That distinction is the one this file exists to demonstrate. An exception says "this rule applies to
+# us and we are knowingly not satisfying it". `not-applicable` says "this rule has no subject here".
+# Collapsing them would let real non-compliance hide inside a claim of irrelevance, so the schema
+# keeps them apart and requires a reason for every not-applicable declaration.
+#
+# What is NOT declared not-applicable: the rules about the standards system itself, and the rules the
+# worked examples exercise. examples/ledger/ contains real decision records checked by the same code
+# an adopting project runs, so the arithmetic and record-keeping rules genuinely apply here and are
+# genuinely evaluated.
+#
+# exceptions is empty, and that is a position rather than an accident. A standards repository that
+# waives its own rules has answered the question it exists to ask.
+
+standardVersion: "1.0.0"
+project: "BettingStandards"
+
+exceptions: []
+
+applicability:
+  # --- No bankroll, no book, no positions ------------------------------------------------------
+  # These rules govern the conduct of an actual wagering operation. This repository has none. Each
+  # revisits the moment that stops being true, which for every one of them is the same event.
+
+  bankroll.defined-in-policy:
+    status: not-applicable
+    reason: "This repository defines the standards and places no bets. betting-policy.yml carries illustrative values for the worked examples, not a real bankroll."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager, or begins managing a real bankroll."
+
+  bankroll.unit-defined:
+    status: not-applicable
+    reason: "No real bankroll exists here, so no real unit does either."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  bankroll.stake-within-unit-rules:
+    status: not-applicable
+    reason: "No stakes are placed. The rule is exercised against examples/ledger/ and the negative fixtures instead."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  exposure.caps-defined:
+    status: not-applicable
+    reason: "No positions are ever open, so there is no exposure to cap."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  exposure.aggregate-computed:
+    status: not-applicable
+    reason: "No open positions to aggregate."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  exposure.correlated-bets-aggregated:
+    status: not-applicable
+    reason: "No open positions, therefore no correlated exposure. The mechanism is demonstrated by examples/ledger/DEC-20260809-003.json, which is a PASS taken because a group cap would have been breached."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  evaluation.process-metrics-defined:
+    status: not-applicable
+    reason: "Process evaluation grades a betting record over a sample. This repository has no betting record — the four example decisions are illustrations, not a sample to draw inference from."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository accumulates settled wagers of its own."
+
+  evaluation.review-cadence:
+    status: not-applicable
+    reason: "Nothing to review on a cadence: no wagering process is being run here."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository begins running a wagering process."
+
+  line.movement-recorded:
+    status: not-applicable
+    reason: "No live markets are being tracked. One example record carries a line history to demonstrate the shape."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository tracks a live market."
+
+  line.clv-computed:
+    status: not-applicable
+    reason: "Closing-line value needs settled wagers against real closing prices. The example settled record demonstrates the computation on illustrative numbers."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository settles a real wager."
+
+  # --- Prohibitions with no subject here --------------------------------------------------------
+  # These are the ONLY prohibitions declared not-applicable, and the reason is the same for all of
+  # them: they prohibit conduct in the running of a wagering operation, and no such operation exists
+  # here. This is the sole escape a prohibition admits — there is no exception mechanism for one, and
+  # an attempt to declare one is rejected rather than recorded.
+  #
+  # Note what is deliberately NOT in this list: every prohibition that the examples and fixtures can
+  # actually exercise (fabrication, ignored vig, hidden uncertainty, guaranteed language, silent
+  # revision, priceless recommendations, unsupported EV claims) stays applicable and is evaluated.
+
+  bankroll.no-chasing-losses:
+    status: not-applicable
+    reason: "No wagers are placed here, so no loss can be chased. The behaviour is demonstrated in test/fixtures/ledger-negative/ and documented in examples/violations/."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  bankroll.no-martingale:
+    status: not-applicable
+    reason: "No staking sequence exists here to escalate. The detector is exercised against the negative fixture sequence instead."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  bankroll.no-loss-driven-sizing:
+    status: not-applicable
+    reason: "No stakes are sized here at all."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  bankroll.no-due-theory:
+    status: not-applicable
+    reason: "No sizing decisions are made here, so none can be made on the belief that an outcome is owed."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  decision.no-action-bets:
+    status: not-applicable
+    reason: "No wagers are recommended here to anyone."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository recommends a wager."
+
+  decision.no-bet-quota:
+    status: not-applicable
+    reason: "No betting cadence exists here to impose a quota on."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository begins a betting cadence."
+
+  exposure.no-cap-breaches:
+    status: not-applicable
+    reason: "No exposure exists to breach a cap. Demonstrated instead by the exposure-breach negative fixture."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  exposure.no-ignored-correlation:
+    status: not-applicable
+    reason: "No open positions, so no correlated exposure can be ignored."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository places its first wager."
+
+  evaluation.no-lookahead-backtests:
+    status: not-applicable
+    reason: "This repository runs no backtests. Note that this is a claim about the project, not a judgement that the rule is unimportant — it is one of the easiest prohibitions to violate accidentally, which is why examples/violations/ documents it in detail."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository backtests any strategy."
+
+  probability.no-gamblers-fallacy:
+    status: not-applicable
+    reason: "No probability estimates are produced here. Estimating fair probabilities is upstream of this pack (ADR 0001); the example records carry estimates as illustrative inputs."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository produces a probability estimate of its own."
+
+  decision.no-resulting:
+    status: not-applicable
+    reason: "No wagers are judged here after settlement. The invariant itself is stated normatively in Standard 1 and is what the whole record format is built to protect; what has no subject here is the CONDUCT of judging one's own bets by their results."
+    reviewedAt: "2026-08-09"
+    revisitWhen: "This repository settles a wager and reviews the decision that made it."

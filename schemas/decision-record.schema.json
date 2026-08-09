@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BettingStandards/schemas/decision-record.schema.json",
+  "title": "Decision Record",
+  "description": "One wagering decision, BET or PASS, capturing every stage of the decision pipeline as it stood at decision time. This is the unit of evidence for the whole pack (ADR 0004): the checker re-derives every value under `derived` from the inputs beside them and disagrees when they differ. Two structural rules carry most of the weight. First, everything under `decision` is immutable once recorded and is covered by `integrity.decisionDigest`; settlement information goes in `outcome`, which sits outside the digest, so a result can be appended without touching what was decided. Second, a PASS record is a first-class success and is required, not optional — a ledger of BETs only cannot show whether anything was ever declined.",
+  "type": "object",
+  "required": ["schemaVersion", "id", "decision", "integrity"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this record format, independent of the framework version.",
+      "type": "string",
+      "const": "1.0"
+    },
+
+    "id": {
+      "description": "Stable identifier, unique within a ledger. DEC-YYYYMMDD-NNN.",
+      "type": "string",
+      "pattern": "^DEC-[0-9]{8}-[0-9]{3}$"
+    },
+
+    "decision": { "$ref": "#/$defs/decisionBody" },
+
+    "integrity": {
+      "type": "object",
+      "required": ["decisionDigest"],
+      "additionalProperties": false,
+      "properties": {
+        "decisionDigest": {
+          "description": "SHA-256 over the canonical (recursively key-sorted) JSON serialization of `decision`. Recomputed on every check. A mismatch means a decision-time field changed after the fact, which is the behaviour Standard 18 R3 prohibits — reported as `edited-history`, never silently accepted.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+
+    "outcome": { "$ref": "#/$defs/outcome" }
+  },
+
+  "$defs": {
+    "timestamp": {
+      "description": "ISO 8601 with an explicit offset. An offset is required because staleness and event-start comparisons are meaningless across an unknown zone.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+
+    "probability": {
+      "description": "A probability strictly between 0 and 1. Certainty is not an estimate, and 0 or 1 in a wagering context is a claim no evidence supports.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 1
+    },
+
+    "decimalOdds": {
+      "description": "Decimal odds. Must exceed 1: a price of 1 returns the stake and pays nothing.",
+      "type": "number",
+      "exclusiveMinimum": 1
+    },
+
+    "money": {
+      "type": "number",
+      "minimum": 0
+    },
+
+    "decisionBody": {
+      "description": "Everything known and computed at decision time. Immutable once recorded; covered by the digest.",
+      "type": "object",
+      "required": [
+        "recordedAt",
+        "event",
+        "prediction",
+        "market",
+        "uncertaintyDiscount",
+        "bankroll",
+        "policyRef",
+        "derived",
+        "decision",
+        "passReasons",
+        "rationale"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "recordedAt": { "$ref": "#/$defs/timestamp" },
+        "event": { "$ref": "#/$defs/event" },
+        "prediction": { "$ref": "#/$defs/prediction" },
+        "market": { "$ref": "#/$defs/market" },
+
+        "uncertaintyDiscount": {
+          "description": "How much of the estimated edge is given up to uncertainty, in [0, 1]. Required on every record: an estimate with no stated uncertainty is the behaviour Standard 9 R3 prohibits. A discount of 1 removes the edge entirely, which is the honest entry for an estimate carrying no confidence.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+
+        "bankroll": { "$ref": "#/$defs/bankroll" },
+
+        "openExposure": {
+          "description": "Positions already at risk when this decision was made. Required for the exposure gates to mean anything: a cap checked against an unrecorded book is a cap checked against nothing. An empty array is a positive claim that nothing was open.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/openPosition" }
+        },
+
+        "correlationGroup": {
+          "description": "The group this wager's outcome is bound to — same game, same team across markets, or any shared driver. Stakes within a group are summed against the group cap, on the assumption of full correlation (Standard 14 R2). Null means this wager shares no driver with any other, which is a claim, not a default.",
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+
+        "policyRef": { "$ref": "#/$defs/policyRef" },
+        "derived": { "$ref": "#/$defs/derived" },
+
+        "decision": {
+          "description": "The terminal output of the pipeline. Exactly these two, because a pipeline that can end in 'maybe' has not decided anything.",
+          "type": "string",
+          "enum": ["BET", "PASS"]
+        },
+
+        "passReasons": {
+          "description": "For a PASS, the gates that failed, recomputed and compared by the checker. For a PASS taken despite every gate passing, the single entry `discretionary` — always available, because declining a wager needs no justification (Standard 20 R2). For a BET, empty.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+
+        "rationale": {
+          "description": "Why this decision was made, in words. Scanned for language claiming certainty, which Standard 9 R4 prohibits.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "event": {
+      "type": "object",
+      "required": ["description", "market", "selection", "eventStartsAt"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "market": {
+          "description": "The market type: moneyline, spread, total, or whatever the book calls it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "selection": {
+          "description": "Which outcome this wager is on. Must appear in market.fullMarket.",
+          "type": "string",
+          "minLength": 1
+        },
+        "eventStartsAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+
+    "prediction": {
+      "description": "The estimated fair probability, and where it came from. This is an INPUT to this pack, never something it evaluates: whether the prediction deserves belief is the business of prediction standards, and this pack begins one step later, at whether that belief plus this price deserves money (ADR 0001). What this pack does require is provenance — a probability with no stated source cannot be distinguished from one that was invented, which is what Standard 3 R3 and Standard 7 R3 are about.",
+      "type": "object",
+      "required": ["fairProb", "source", "predictedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "fairProb": { "$ref": "#/$defs/probability" },
+        "source": {
+          "description": "What produced this estimate: a named model and run, a documented method, a person. Required.",
+          "type": "string",
+          "minLength": 1
+        },
+        "predictedAt": {
+          "description": "When the estimate was made. Compared against recordedAt for staleness: a prediction has a shelf life, and betting one past it means the fair probability no longer describes the world (Standard 16).",
+          "$ref": "#/$defs/timestamp"
+        },
+        "rationale": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "market": {
+      "type": "object",
+      "required": ["book", "capturedAt", "offered", "fullMarket"],
+      "additionalProperties": false,
+      "properties": {
+        "book": { "type": "string", "minLength": 1 },
+        "capturedAt": {
+          "description": "When these prices were observed. A price is a fact about a moment; without the moment it cannot be shown to have been current (Standard 3 R2).",
+          "$ref": "#/$defs/timestamp"
+        },
+        "offered": { "$ref": "#/$defs/price" },
+        "fullMarket": {
+          "description": "Every outcome in the market with its price. Required, and the requirement is load-bearing: the overround cannot be computed from one price, so a record without the full market cannot show that vig was removed at all. This is what makes `vig-ignored` mechanically detectable rather than a matter of trust (Standard 5 R2).",
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": ["selection", "decimal"],
+            "additionalProperties": false,
+            "properties": {
+              "selection": { "type": "string", "minLength": 1 },
+              "decimal": { "$ref": "#/$defs/decimalOdds" }
+            }
+          }
+        },
+        "lineHistory": {
+          "description": "Observed prices before this decision, oldest first. Recommended rather than required: not every book publishes a history, and requiring one would push a bettor toward inventing it (Standard 15 R1).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["capturedAt", "decimal"],
+            "additionalProperties": false,
+            "properties": {
+              "capturedAt": { "$ref": "#/$defs/timestamp" },
+              "decimal": { "$ref": "#/$defs/decimalOdds" },
+              "source": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "price": {
+      "description": "One quoted price. `decimal` is always present and is what every calculation uses; `american` and `fractional` are the spelling it was quoted in, retained so a record can be checked against the book's own display.",
+      "type": "object",
+      "required": ["format", "decimal"],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["american", "decimal", "fractional"]
+        },
+        "decimal": { "$ref": "#/$defs/decimalOdds" },
+        "american": {
+          "description": "Integer with absolute value at least 100. Both +100 and -100 mean even money.",
+          "type": "integer"
+        },
+        "fractional": {
+          "type": "object",
+          "required": ["numerator", "denominator"],
+          "additionalProperties": false,
+          "properties": {
+            "numerator": { "type": "number", "exclusiveMinimum": 0 },
+            "denominator": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        }
+      }
+    },
+
+    "bankroll": {
+      "description": "The ring-fenced amount this decision is sized against (Standard 11). Every stake and exposure figure in the record is a fraction of this number, so a record that omitted it would make every cap uncheckable.",
+      "type": "object",
+      "required": ["current", "unit", "asOf"],
+      "additionalProperties": false,
+      "properties": {
+        "current": { "type": "number", "exclusiveMinimum": 0 },
+        "unit": {
+          "description": "Currency or unit label. Recorded, never converted — this pack does no exchange-rate arithmetic.",
+          "type": "string",
+          "minLength": 1
+        },
+        "asOf": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+
+    "openPosition": {
+      "type": "object",
+      "required": ["decisionId", "stake"],
+      "additionalProperties": false,
+      "properties": {
+        "decisionId": { "type": "string", "pattern": "^DEC-[0-9]{8}-[0-9]{3}$" },
+        "stake": { "$ref": "#/$defs/money" },
+        "correlationGroup": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+
+    "policyRef": {
+      "description": "The betting policy this decision was made under, pinned by content digest. This is what stops a threshold change from silently re-judging past decisions: relax `minEdge` next month and the old records still carry the digest of the policy that actually governed them, so they are visibly decisions made under different rules rather than decisions that retroactively became acceptable (Standard 19 R2, design/concept-model.md on revisit conditions).",
+      "type": "object",
+      "required": ["path", "digest"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+
+    "derived": {
+      "description": "Every value computed from the inputs above. NONE of these is trusted: the checker recomputes each one and reports `ev-mismatch` on any disagreement beyond tolerance. They are recorded rather than left implicit so that a reader can follow the arithmetic without running anything, and so that a disagreement names the exact stage that is wrong.",
+      "type": "object",
+      "required": [
+        "impliedProb",
+        "overround",
+        "marketFairProb",
+        "vigMethod",
+        "rawEdge",
+        "adjustedEdge",
+        "adjustedProb",
+        "evPerUnit",
+        "kellyFullFraction",
+        "recommendedStake",
+        "stake",
+        "stakePercentOfBankroll",
+        "groupExposureAfter",
+        "totalExposureAfter"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "impliedProb": {
+          "description": "1 / offered.decimal. What the price charges, vig included.",
+          "$ref": "#/$defs/probability"
+        },
+        "overround": {
+          "description": "Sum of the full market's implied probabilities, minus 1. Negative is possible and is reported as a warning rather than treated as free money.",
+          "type": "number"
+        },
+        "marketFairProb": {
+          "description": "This selection's vig-removed probability, derived from the full market.",
+          "$ref": "#/$defs/probability"
+        },
+        "vigMethod": {
+          "description": "How the vig was removed. One value in v1, recorded anyway so a future method cannot be introduced without every record saying which one it used.",
+          "type": "string",
+          "enum": ["multiplicative"]
+        },
+        "rawEdge": {
+          "description": "prediction.fairProb − impliedProb. Signed: a negative edge is a real and common finding, and recording it is how a PASS shows its work.",
+          "type": "number"
+        },
+        "adjustedEdge": {
+          "description": "rawEdge × (1 − uncertaintyDiscount). This, not rawEdge, is what the minimum-edge gate compares (Standard 10 R3).",
+          "type": "number"
+        },
+        "adjustedProb": {
+          "description": "impliedProb + adjustedEdge. The probability the bettor is effectively claiming after discounting.",
+          "$ref": "#/$defs/probability"
+        },
+        "evPerUnit": {
+          "description": "offered.decimal × adjustedEdge, equivalently adjustedProb × decimal − 1. Both routes must agree.",
+          "type": "number"
+        },
+        "kellyFullFraction": {
+          "description": "Full-Kelly fraction on adjustedProb, clamped at 0.",
+          "type": "number",
+          "minimum": 0
+        },
+        "recommendedStake": {
+          "description": "min(bankroll × kellyMultiplier × kellyFullFraction, bankroll × maxSingleBetPct). The most this decision may stake.",
+          "$ref": "#/$defs/money"
+        },
+        "stake": {
+          "description": "What was actually staked. Zero for a PASS, and required to be zero — a PASS that risks money is not a PASS.",
+          "$ref": "#/$defs/money"
+        },
+        "stakePercentOfBankroll": { "type": "number", "minimum": 0 },
+        "groupExposureAfter": {
+          "description": "Total stake in this correlation group including this wager.",
+          "$ref": "#/$defs/money"
+        },
+        "totalExposureAfter": {
+          "description": "Total open stake including this wager.",
+          "$ref": "#/$defs/money"
+        }
+      }
+    },
+
+    "outcome": {
+      "description": "Settlement, appended after the fact. Deliberately OUTSIDE the digest so that recording a result never disturbs the decision — which is what lets the pack insist that bet quality is judged from decision-time information while still tracking what happened (Standard 1, Standard 18 R2). Nothing here may feed back into a judgement of whether the decision was correct.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "closingDecimal": {
+          "description": "The closing price. Absent means it was not obtainable; an absent closing price is recorded as absent and never estimated (Standard 17 R3).",
+          "$ref": "#/$defs/decimalOdds"
+        },
+        "closingCapturedAt": { "$ref": "#/$defs/timestamp" },
+        "clvPct": {
+          "description": "offered.decimal / closingDecimal − 1. Process evidence, never per-bet proof.",
+          "type": "number"
+        },
+        "result": {
+          "type": "string",
+          "enum": ["win", "loss", "push", "void"]
+        },
+        "profitUnits": {
+          "description": "win: stake × (decimal − 1); loss: −stake; push or void: 0.",
+          "type": "number"
+        },
+        "settledAt": {
+          "description": "Must be strictly after decision.recordedAt. A settlement timestamp at or before the decision would mean the result was known when the wager was placed.",
+          "$ref": "#/$defs/timestamp"
+        },
+        "processReview": {
+          "description": "Optional note on the DECISION, written after the result is known and required to be about decision-time information only. 'The process found a price the market later agreed with' is a process review; 'this was a bad bet because it lost' is the reasoning Standard 1 R2 and R3 prohibit.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

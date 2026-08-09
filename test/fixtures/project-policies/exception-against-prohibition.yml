@@ -1,0 +1,8 @@
+# The attempt this pack must refuse: waiving a prohibition because it is inconvenient.
+standardVersion: "1.0.0"
+project: "fixture"
+exceptions:
+  - rule: "bankroll.no-martingale"
+    reason: "Our recovery staking plan needs it and the bankroll is large enough to absorb the sequence."
+    approvedBy: "A. Bettor"
+    approvedAt: "2026-08-01"

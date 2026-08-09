@@ -1,0 +1,11 @@
+standardVersion: "1.0.0"
+project: "fixture"
+applicability:
+  line.clv-computed:
+    status: not-applicable
+    reason: "Our book publishes no closing prices."
+exceptions:
+  - rule: "line.clv-computed"
+    reason: "We will start recording closing lines next season."
+    approvedBy: "A. Bettor"
+    approvedAt: "2026-08-01"

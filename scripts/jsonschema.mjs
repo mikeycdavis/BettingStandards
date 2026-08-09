@@ -1,20 +1,22 @@
 /**
- * A small JSON Schema evaluator covering exactly the keywords used by
- * schemas/project-policy.schema.json, and refusing to run against anything else.
+ * A small JSON Schema evaluator covering exactly the keywords this repository's schemas use, and
+ * refusing to run against anything else.
  *
- * The schema file is the single definition of what a valid policy is (Standard 37 R5). This module
- * exists so that definition is *executed* rather than restated in hand-written checks — a
- * hand-written validator alongside a schema is two definitions, and the drift between them is
- * silent (Standard 27 R4).
+ * The schema files are the single definition of what a valid policy and a valid decision record are.
+ * This module exists so those definitions are *executed* rather than restated in hand-written checks
+ * — a hand-written validator alongside a schema is two definitions, and the drift between them is
+ * silent.
  *
  * The strictness that matters: an unsupported keyword throws instead of being ignored. A validator
  * that silently skips a constraint it does not implement reports PASS for a document it never fully
- * checked, which is the false green of Standard 24 R2 in its purest form. If a future schema adds
- * `oneOf`, this module fails loudly until someone implements it.
+ * checked. That would be bad anywhere; here it would mean a decision record with a probability of
+ * 1.5 or a negative stake passing validation, and every downstream gate reasoning about a number the
+ * schema was supposed to have rejected. If a future schema adds `oneOf`, this module fails loudly
+ * until someone implements it.
  *
- * `format` is treated as an annotation and NOT validated, which is what the specification says it
- * is. Every `format` in the policy schema is paired with an equivalent `pattern`, so the assurance
- * is carried by the pattern; the annotation claims nothing.
+ * `format` is treated as an annotation and NOT validated, which is what the specification says it is.
+ * Every `format` in these schemas is paired with an equivalent `pattern`, so the assurance is carried
+ * by the pattern; the annotation claims nothing.
  */
 
 const SUPPORTED = new Set([
@@ -33,9 +35,17 @@ const SUPPORTED = new Set([
   "enum",
   "const",
   "minLength",
+  "maxLength",
   "items",
   "minItems",
   "format",
+  // Numeric bounds, added for the decision-record schema. Probabilities are strictly inside (0, 1),
+  // decimal odds strictly above 1, and money never negative — constraints that are cheap here and
+  // expensive to discover three stages later as a nonsensical edge.
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
 ]);
 
 /** Keywords that carry no constraint we evaluate. */
@@ -104,6 +114,24 @@ function check(value, schema, root, path, errors) {
     }
     if (schema.minLength !== undefined && value.length < schema.minLength) {
       errors.push({ path, message: `must not be empty` });
+    }
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) {
+      errors.push({ path, message: `must be at most ${schema.maxLength} characters` });
+    }
+  }
+
+  if (actual === "number") {
+    if (schema.minimum !== undefined && value < schema.minimum) {
+      errors.push({ path, message: `must be at least ${schema.minimum}, got ${value}` });
+    }
+    if (schema.maximum !== undefined && value > schema.maximum) {
+      errors.push({ path, message: `must be at most ${schema.maximum}, got ${value}` });
+    }
+    if (schema.exclusiveMinimum !== undefined && value <= schema.exclusiveMinimum) {
+      errors.push({ path, message: `must be greater than ${schema.exclusiveMinimum}, got ${value}` });
+    }
+    if (schema.exclusiveMaximum !== undefined && value >= schema.exclusiveMaximum) {
+      errors.push({ path, message: `must be less than ${schema.exclusiveMaximum}, got ${value}` });
     }
   }
 

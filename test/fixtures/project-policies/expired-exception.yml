@@ -1,0 +1,8 @@
+standardVersion: "1.0.0"
+project: "fixture"
+exceptions:
+  - rule: "line.movement-recorded"
+    reason: "The book we use publishes no line history; a replacement feed is being evaluated."
+    approvedBy: "A. Bettor"
+    approvedAt: "2025-01-01"
+    expires: "2025-06-30"
