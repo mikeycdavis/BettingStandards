@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BettingStandards/schemas/project-policy.schema.json",
+  "title": "Project Policy",
+  "description": "A project's declaration of which betting standards apply to it and at what level. Keys under `rules`, `applicability`, and `attestations` are canonical rule IDs (`category.kebab-case-name`) and nothing else; this pack defines no aliases, so any other spelling is rejected rather than resolved (ADR 0003).",
+  "type": "object",
+  "required": ["standardVersion"],
+  "additionalProperties": false,
+
+  "properties": {
+    "standardVersion": {
+      "description": "The framework version this project is evaluated against. An unresolvable version is a configuration error, not a compliance failure — exit 2, never a verdict.",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+
+    "project": {
+      "description": "Project identity, carried into validator output as `project`.",
+      "type": "string",
+      "minLength": 1
+    },
+
+    "rules": {
+      "description": "Level per rule. A rule absent from this map takes the framework default for the declared standardVersion; a validator reports how many rules were undeclared so absence is never mistaken for a decision.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/ruleId" },
+      "additionalProperties": { "$ref": "#/$defs/ruleSetting" }
+    },
+
+    "applicability": {
+      "description": "Whether a rule's subject exists in this project at all. First-class, and deliberately NOT an exception: `not-applicable` means the rule has no subject here, whereas an exception means the rule applies and the project is knowingly not satisfying it. The two must never collapse into one mechanism. For this pack the whole-pack case is real: a project that places no wagers declares the operational rules not-applicable, and that is the ONLY escape from a prohibition.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/ruleId" },
+      "additionalProperties": { "$ref": "#/$defs/applicabilityDeclaration" }
+    },
+
+    "exceptions": {
+      "description": "Approved, time-bounded waivers of rules that DO apply. An expired exception is a compliance failure, not a resolution. An exception against a forbidden rule is REJECTED rather than recorded: a waivable prohibition is not a prohibition (ADR 0002).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/exception" }
+    },
+
+    "attestations": {
+      "description": "Recorded human judgement for rules the catalog says a human evaluates. An attestation is EVIDENCE, not a waiver: it says the rule applies and is satisfied on human review. It never overrides an automated failure, never applies to a rule the catalog marks non-attestable, and returns the rule to not-evaluated once stale or expired.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/ruleId" },
+      "additionalProperties": { "$ref": "#/$defs/attestation" }
+    }
+  },
+
+  "$defs": {
+    "ruleId": {
+      "description": "Canonical rule identity (ADR 0003): `category.kebab-case-name`, dot-separated, lower-case throughout. Categories in this pack: odds, probability, vig, edge, ev, uncertainty, bankroll, exposure, line, record, evaluation, decision, integrity.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+(-[a-z0-9]+)*)+$"
+    },
+
+    "level": {
+      "description": "How a rule binds. Levels are preferred over booleans because `true` cannot express a considered partial adoption. This pack uses no `optional` level (design/concept-model.md): a rule here either gates a decision to risk money or advises. A policy may not lower a `forbidden` rule — the catalog owns that.",
+      "type": "string",
+      "enum": ["required", "recommended", "forbidden"]
+    },
+
+    "ruleSetting": {
+      "type": "object",
+      "required": ["level"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "$ref": "#/$defs/level" },
+        "note": {
+          "description": "Why this project selected this level. Not a substitute for an exception.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "applicabilityDeclaration": {
+      "type": "object",
+      "required": ["status", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["applicable", "not-applicable"]
+        },
+        "reason": {
+          "description": "Required. A not-applicable declaration with no reason is indistinguishable from a rule that was forgotten.",
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewedAt": {
+          "description": "When this judgement was last examined. Not-applicable is a claim about the PROJECT, not about the rule, and stops being true the moment the project gains the capability.",
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "revisitWhen": {
+          "description": "The condition under which this declaration must be re-examined. For a project that declares the betting rules not-applicable, the obvious trigger is 'this project places its first wager'.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "attestation": {
+      "type": "object",
+      "required": ["status", "reviewedBy", "reviewedAt", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "Only `approved` establishes the requirement. `rejected` records that a human looked and found it unmet, which is a failure rather than silence.",
+          "type": "string",
+          "enum": ["approved", "rejected"]
+        },
+        "reviewedBy": { "type": "string", "minLength": 1 },
+        "reviewedAt": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "evidence": {
+          "description": "What was examined. Required, because an attestation without it is an assertion rather than evidence — the thing this mechanism exists to avoid.",
+          "type": "string",
+          "minLength": 1
+        },
+        "reference": { "type": "string", "minLength": 1 },
+        "expires": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "reviewedAgainst": { "$ref": "#/$defs/reviewedAgainst" }
+      }
+    },
+
+    "reviewedAgainst": {
+      "description": "What the reviewer actually looked at. The validator digests these paths and compares; when the digest differs the attestation is stale and the rule returns to not-evaluated, because the thing reviewed is not the thing that is there now.",
+      "type": "object",
+      "required": ["paths"],
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "digest": {
+          "description": "Digest of the reviewed paths. Omit it on a first pass — the validator reports the current digest so it can be recorded.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{16,64}$"
+        },
+        "revision": {
+          "description": "Informational revision identifier. Recorded, never computed — provider-neutral by design.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "exception": {
+      "type": "object",
+      "required": ["rule", "reason", "approvedBy", "approvedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": { "$ref": "#/$defs/ruleId" },
+        "reason": { "type": "string", "minLength": 1 },
+        "approvedBy": {
+          "description": "Provenance. An exception nobody approved is a note.",
+          "type": "string",
+          "minLength": 1
+        },
+        "approvedAt": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "expires": {
+          "description": "Optional. Absence means the waiver is indefinite, which is a stronger claim than it looks and should be rare. An exception past its expiry is a compliance failure.",
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "reference": {
+          "description": "An ADR, issue, or work item carrying the decision.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
