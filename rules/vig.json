@@ -1,0 +1,62 @@
+{
+  "$comment": "Rule catalog — vig. Standard 5.",
+  "rules": [
+    {
+      "id": "vig.overround-computed",
+      "title": "The market's overround is computed and recorded",
+      "standard": 5,
+      "category": "vig",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "full",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Every decision records the full market and the overround derived from it: the sum of the implied probabilities, minus one.",
+      "rationale": "The margin is the house's edge and the bettor's first cost. A decision that never computes it is a decision that never priced its own transaction costs.",
+      "remediation": "Record every outcome in the market with its price, and compute the overround from them.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Full assurance over the recorded market. A market recorded with outcomes missing would produce a smaller overround and this check cannot tell the difference — which is why the schema requires the complete market rather than trusting it."
+    },
+    {
+      "id": "vig.removal-method-declared",
+      "title": "The vig removal method is declared",
+      "standard": 5,
+      "category": "vig",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "full",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Every decision names the method used to convert implied probabilities into fair probabilities.",
+      "rationale": "Different methods give different fair probabilities and therefore different edges. A fair probability without a named method cannot be reproduced, and cannot be compared with one computed another way.",
+      "remediation": "Record the vig removal method used. This pack supports the multiplicative (proportional) method.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Full assurance that a supported method is named and that the recorded fair probabilities follow from it."
+    },
+    {
+      "id": "vig.no-ignored-vig",
+      "title": "Vig is never ignored",
+      "standard": 5,
+      "category": "vig",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "partial",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No edge or expected value is derived from raw implied probabilities. The bookmaker's margin is removed first, from the full market, by a declared method.",
+      "rationale": "Comparing an estimate against the raw implied probability treats the house margin as though it were free. On a standard two-way market that is roughly a two-and-a-half point head start handed to the book on every wager, and it is large enough to turn a losing process into one that looks profitable on paper.",
+      "remediation": "Remove the vig from the full market before computing edge, and recompute every downstream value.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Detects a fair probability that was not derived from the recorded market, including the specific case where it equals the raw implied probability. It cannot detect a market recorded incompletely, which would understate the margin while passing every check here."
+    }
+  ]
+}

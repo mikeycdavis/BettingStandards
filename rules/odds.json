@@ -1,0 +1,62 @@
+{
+  "$comment": "Rule catalog — odds. Standard 3.",
+  "rules": [
+    {
+      "id": "odds.conversion-exact",
+      "title": "Odds conversions are exact and reproducible",
+      "standard": 3,
+      "category": "odds",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "full",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Where a price is recorded in more than one notation, the notations agree: the American or fractional form converts to the recorded decimal odds.",
+      "rationale": "A price recorded in two notations that disagree is a price nobody can act on, and the discrepancy usually means one of them was typed rather than observed.",
+      "remediation": "Recompute the decimal odds from the quoted form, or correct the quoted form to match what the book displayed.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Full assurance that the notations are mutually consistent. It does not establish that either was the price the book was actually showing."
+    },
+    {
+      "id": "odds.quote-provenance",
+      "title": "Every quoted price carries its source and the moment it was observed",
+      "standard": 3,
+      "category": "odds",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "full",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Each recorded price names the book it came from and the timestamp at which it was observed, and the selection wagered on appears in the recorded market.",
+      "rationale": "A price is a fact about a moment. Without the book and the moment, a quote cannot be shown to have been current, and a wager cannot be traced to anything that was on offer.",
+      "remediation": "Record the book and the capture timestamp with every price, and include the selection in the recorded market.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Full assurance that provenance fields are present and internally consistent. Whether the recorded book was showing that price at that moment is outside what any record can establish."
+    },
+    {
+      "id": "odds.no-fabrication",
+      "title": "Odds are never fabricated",
+      "standard": 3,
+      "category": "odds",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "partial",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No price is invented, estimated, or filled in from memory. Every price in a decision record was observed at a named book at a recorded time, and the price wagered on matches the market recorded beside it.",
+      "rationale": "Every downstream number — implied probability, edge, expected value, stake — is computed from the price. A fabricated price does not produce a slightly wrong answer; it produces a confident answer about a wager that was never on offer.",
+      "remediation": "Remove the record or replace the price with an observed quote and re-derive every value from it. Do not estimate a price that was not seen.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Detects only the structural traces of fabrication: a price with no provenance, or one that disagrees with the market recorded alongside it. A plausible invented price with complete provenance fields is INDISTINGUISHABLE from a real one to this check. It MUST NOT be reported as 'no odds were fabricated'."
+    }
+  ]
+}

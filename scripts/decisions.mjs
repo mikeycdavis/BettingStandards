@@ -209,11 +209,19 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
   // The core of the check. Each stage is recomputed from the inputs beside it, so a disagreement
   // names the stage that is wrong rather than reporting that the record "does not add up".
   const impliedProbs = outcomes.map((o) => bm.impliedFromDecimal(o.decimal));
-  const expect = (id, label, actual, expected, tolerance) => {
+
+  // Each stage binds to the rule that governs it, rather than every mismatch reporting under one
+  // generic id. The precision is what lets the evaluator claim honestly that it evaluated
+  // `probability.implied-from-price` — a coarse binding would mean a broken implied probability was
+  // reported as an expected-value problem, and the implied-probability rule would have been checked
+  // by nothing while appearing to pass.
+  const expect = (id, rule, label, actual, expected, tolerance) => {
     if (!bm.nearlyEqual(actual, expected, tolerance)) {
-      at(
-        id,
-        `${label}: recorded ${actual}, recomputes to ${bm.roundTo(expected, tolerance === bm.TOL_MONEY ? bm.DP_MONEY : bm.DP_PROB)}`,
+      findings.push(
+        finding(id, `${label}: recorded ${actual}, recomputes to ${bm.roundTo(expected, tolerance === bm.TOL_MONEY ? bm.DP_MONEY : bm.DP_PROB)}`, {
+          file,
+          rule,
+        }),
       );
       return false;
     }
@@ -221,10 +229,10 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
   };
 
   const impliedProb = bm.impliedFromDecimal(offered.decimal);
-  expect("ev-mismatch", "implied probability", derived.impliedProb, impliedProb, bm.TOL_PROB);
+  expect("ev-mismatch", "probability.implied-from-price", "implied probability", derived.impliedProb, impliedProb, bm.TOL_PROB);
 
   const over = bm.overround(impliedProbs);
-  expect("ev-mismatch", "overround", derived.overround, over, bm.TOL_PROB);
+  expect("ev-mismatch", "vig.overround-computed", "overround", derived.overround, over, bm.TOL_PROB);
   if (over < -bm.TOL_PROB) {
     at(
       "negative-overround",
@@ -244,7 +252,7 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
     // tolerance; comparing a rounded value against a full-precision one needs twice that, and using
     // the tighter tolerance there silently missed the very case this branch exists to catch.
     if (
-      !expect("vig-ignored", "market fair probability", derived.marketFairProb, marketFair, bm.TOL_PROB) &&
+      !expect("vig-ignored", "vig.no-ignored-vig", "market fair probability", derived.marketFairProb, marketFair, bm.TOL_PROB) &&
       bm.nearlyEqual(derived.marketFairProb, derived.impliedProb, bm.TOL_PROB)
     ) {
       at(
@@ -255,14 +263,14 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
   }
 
   const rawEdge = d.prediction.fairProb - impliedProb;
-  expect("ev-mismatch", "raw edge", derived.rawEdge, rawEdge, bm.TOL_PROB);
+  expect("ev-mismatch", "edge.computed-from-inputs", "raw edge", derived.rawEdge, rawEdge, bm.TOL_PROB);
 
   const adjEdge = bm.adjustedEdge(rawEdge, d.uncertaintyDiscount);
-  expect("ev-mismatch", "adjusted edge", derived.adjustedEdge, adjEdge, bm.TOL_PROB);
-  expect("ev-mismatch", "adjusted probability", derived.adjustedProb, impliedProb + adjEdge, bm.TOL_PROB);
+  expect("ev-mismatch", "uncertainty.discount-applied", "adjusted edge", derived.adjustedEdge, adjEdge, bm.TOL_PROB);
+  expect("ev-mismatch", "uncertainty.discount-applied", "adjusted probability", derived.adjustedProb, impliedProb + adjEdge, bm.TOL_PROB);
 
   const ev = offered.decimal * adjEdge;
-  expect("ev-mismatch", "expected value per unit", derived.evPerUnit, ev, bm.TOL_PROB);
+  expect("ev-mismatch", "ev.computed-and-recorded", "expected value per unit", derived.evPerUnit, ev, bm.TOL_PROB);
   // The identity EV = adjustedProb x decimal - 1 is the same number by another route. Checking both
   // means a single transposed input shows up as an inconsistency rather than as a plausible figure.
   const evViaProb = (impliedProb + adjEdge) * offered.decimal - 1;
@@ -271,16 +279,17 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
   }
 
   const kelly = adjEdge > 0 ? bm.kellyFraction(impliedProb + adjEdge, offered.decimal) : 0;
-  expect("ev-mismatch", "full Kelly fraction", derived.kellyFullFraction, kelly, bm.TOL_PROB);
+  expect("ev-mismatch", "bankroll.stake-within-unit-rules", "full Kelly fraction", derived.kellyFullFraction, kelly, bm.TOL_PROB);
 
   const bankroll = d.bankroll.current;
   const kellyStake = bankroll * policy.kellyMultiplier * kelly;
   const capStake = bankroll * policy.maxSingleBetPct;
   const recommended = Math.min(kellyStake, capStake);
-  expect("ev-mismatch", "recommended stake", derived.recommendedStake, recommended, bm.TOL_MONEY);
+  expect("ev-mismatch", "bankroll.stake-within-unit-rules", "recommended stake", derived.recommendedStake, recommended, bm.TOL_MONEY);
 
   expect(
     "ev-mismatch",
+    "bankroll.defined-in-policy",
     "stake as a percentage of bankroll",
     derived.stakePercentOfBankroll,
     derived.stake / bankroll,
@@ -290,8 +299,8 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
   const open = d.openExposure ?? [];
   const totals = bm.exposureTotals(open);
   const groupBefore = d.correlationGroup ? (totals.byGroup.get(d.correlationGroup) ?? 0) : 0;
-  expect("ev-mismatch", "group exposure after", derived.groupExposureAfter, groupBefore + derived.stake, bm.TOL_MONEY);
-  expect("ev-mismatch", "total exposure after", derived.totalExposureAfter, totals.total + derived.stake, bm.TOL_MONEY);
+  expect("ev-mismatch", "exposure.correlated-bets-aggregated", "group exposure after", derived.groupExposureAfter, groupBefore + derived.stake, bm.TOL_MONEY);
+  expect("ev-mismatch", "exposure.aggregate-computed", "total exposure after", derived.totalExposureAfter, totals.total + derived.stake, bm.TOL_MONEY);
 
   // --- The decision rule -----------------------------------------------------------------------
   // Recomputed independently of what the record decided. Comparisons use the RECORDED values, which
@@ -429,11 +438,12 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
       at("settled-before-decided", "the settlement timestamp is at or before the decision timestamp");
     }
     if (o.closingDecimal !== undefined && o.clvPct !== undefined) {
-      expect("clv-mismatch", "closing-line value", o.clvPct, bm.clvPercent(offered.decimal, o.closingDecimal), bm.TOL_PROB);
+      expect("clv-mismatch", "line.clv-computed", "closing-line value", o.clvPct, bm.clvPercent(offered.decimal, o.closingDecimal), bm.TOL_PROB);
     }
     if (o.result !== undefined && o.profitUnits !== undefined) {
       expect(
         "ev-mismatch",
+        "record.results-separated",
         "profit",
         o.profitUnits,
         bm.profitUnits(o.result, derived.stake, offered.decimal),

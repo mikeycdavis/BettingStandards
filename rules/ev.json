@@ -1,0 +1,62 @@
+{
+  "$comment": "Rule catalog — expected value. Standard 8.",
+  "rules": [
+    {
+      "id": "ev.computed-and-recorded",
+      "title": "Expected value is computed and recorded with the decision",
+      "standard": 8,
+      "category": "ev",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "full",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Every decision records expected value per unit staked, and it recomputes from the recorded price and discounted edge by both available routes.",
+      "rationale": "Expected value is the summary the decision rule reads. Recording it makes the arithmetic checkable; computing it two ways makes a transposed input show up as an inconsistency rather than as a plausible figure.",
+      "remediation": "Recompute expected value from the recorded price and discounted edge.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Full assurance that the value follows from its recorded inputs by both routes."
+    },
+    {
+      "id": "ev.no-unsupported-ev-claims",
+      "title": "Nothing is called positive expected value without the calculation behind it",
+      "standard": 8,
+      "category": "ev",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "document",
+      "assurance": "partial",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No output describes a wager as positive EV, or +EV, unless it resolves to a decision record carrying the probability and price the claim rests on.",
+      "rationale": "'+EV' is the phrase that ends arguments. Used without the arithmetic it is a claim of rigour rather than an instance of it, and it is most persuasive exactly where it is least earned.",
+      "remediation": "Either produce the decision record with the probability and price behind the claim, or drop the claim.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Scans recorded prose for EV claims that do not resolve to a calculation. Outputs outside the ledger — a message, a conversation, a spreadsheet — are not visible to this check at all."
+    },
+    {
+      "id": "ev.no-fabricated-ev",
+      "title": "Expected value is never fabricated",
+      "standard": 8,
+      "category": "ev",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "partial",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No expected value is stated that does not follow from a recorded probability, price, and stake.",
+      "rationale": "An invented expected value is worse than none: it carries the authority of a calculation while having none of the substance, and it is the number a reader is least likely to check.",
+      "remediation": "Recompute expected value from the recorded inputs, or correct the inputs to those actually used.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Detects an expected value inconsistent with its recorded inputs. One computed correctly from fabricated inputs passes here."
+    }
+  ]
+}

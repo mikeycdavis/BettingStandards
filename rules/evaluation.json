@@ -1,0 +1,62 @@
+{
+  "$comment": "Rule catalog — process evaluation. Standard 19.",
+  "rules": [
+    {
+      "id": "evaluation.process-metrics-defined",
+      "title": "Process metrics are defined and are decision-time metrics",
+      "standard": 19,
+      "category": "evaluation",
+      "level": "required",
+      "severity": "error",
+      "validationType": "document",
+      "assurance": "partial",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "The metrics used to grade the betting process are defined in advance, are computed from decision-time information, and include a minimum sample size below which no conclusion is drawn.",
+      "rationale": "Profit and loss is a lagging indicator with enormous variance: a good process loses over samples large enough to feel conclusive, and a bad one wins. Grading on decision-time metrics is the only way to learn anything from a sample a person will actually accumulate.",
+      "remediation": "Define the metrics and the sample-size floor before evaluating, not after seeing the results.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Establishes that metrics are documented. Whether they are the right metrics, and whether they were chosen before or after the results were seen, is a judgement no check can make."
+    },
+    {
+      "id": "evaluation.review-cadence",
+      "title": "The process is reviewed on a defined cadence",
+      "standard": 19,
+      "category": "evaluation",
+      "level": "recommended",
+      "severity": "warning",
+      "validationType": "manual-review",
+      "assurance": "none",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "The betting process is reviewed at a stated interval, and the review examines decisions rather than results.",
+      "rationale": "Review triggered by results happens after losses and skips after wins, which systematically examines the process at its least representative moments and mistakes variance for information.",
+      "remediation": "Set a review interval and record each review as an attestation.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "NOT MECHANICALLY EVALUATED. A review is a human activity; this reports not-evaluated unless attested."
+    },
+    {
+      "id": "evaluation.no-lookahead-backtests",
+      "title": "Backtests never use information unavailable at the simulated decision time",
+      "standard": 19,
+      "category": "evaluation",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "manual-review",
+      "assurance": "none",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No historical simulation uses closing prices as though they were available at the time of the wager, final lineups announced after the simulated decision, revised statistics, or any other information that did not exist at the moment being simulated.",
+      "rationale": "Leakage is the most consequential error in this pack because it produces a confident, quantified, entirely false expectation of profit — and it produces it in the direction that encourages betting. It is rarely deliberate: a data set assembled after the fact simply contains what was known later, and using it feels like using history.",
+      "remediation": "Reconstruct the information set as it stood at each simulated decision, using prices and data with timestamps at or before it. Where the historical information set cannot be reconstructed, say so rather than substituting what is available now.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "NOT MECHANICALLY EVALUATED, and deliberately not faked. Leakage is a property of how a data set was assembled, not a string that appears in a file — a backtest can be entirely leaked without any artifact in this repository looking wrong. This rule reports not-evaluated unless a human attests to having reconstructed the historical information set, and it MUST NOT be reported as satisfied because nothing was found."
+    }
+  ]
+}

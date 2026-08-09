@@ -122,7 +122,15 @@ export function evaluate({ catalog, policy, findings, evaluated, today, digests 
     }
 
     const exception = activeExceptions.get(rule.id);
-    const outcome = level === "required" || level === "forbidden" ? RESULT.failed : RESULT.warning;
+
+    // The finding's severity decides, not the rule's level alone. A rule can be required and still
+    // produce advisory findings: a stale price behind a PASS is worth surfacing, and it is also the
+    // system working correctly — the staleness is exactly why the wager was declined. Escalating
+    // every advisory finding on a required rule to a failure would make correct behaviour report as
+    // non-compliance, and the predictable response to that is to stop recording the advisory case.
+    const worst = hits.some((h) => (h.severity ?? "error") === "error") ? "error" : "warning";
+    const outcome =
+      worst === "error" && (level === "required" || level === "forbidden") ? RESULT.failed : RESULT.warning;
     const result = base(rule, level, outcome, exception ? "excepted" : "evaluated", hits[0].message);
     result.evidence = hits.flatMap((h) => h.evidence ?? []);
     result.files = result.evidence;

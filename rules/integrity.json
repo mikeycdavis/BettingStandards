@@ -1,0 +1,24 @@
+{
+  "$comment": "Rule catalog — the standards-integrity invariant. Standard 21. This category has one rule, and its subject is this framework rather than any wager. It comes from artifacts/prompts/expanded-brief.md rather than from the original prompt's must-never list, which is why the source inventory enumerates it separately.",
+  "rules": [
+    {
+      "id": "integrity.no-standard-weakening",
+      "title": "No standard, test, or evidence mechanism is weakened to permit a desired conclusion",
+      "standard": 21,
+      "category": "integrity",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "manual-review",
+      "assurance": "none",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No human or AI bypasses, weakens, removes, reclassifies, reinterprets, falsifies evidence for, or manipulates a standard, a test, an applicability determination, an evidence requirement, or a verification mechanism because it prevents a desired implementation or conclusion. Lowering a threshold to admit a wager, marking an applicable rule not-applicable to avoid a finding, deleting a failing test, loosening a tolerance until a mismatch disappears, and re-recording a decision under a friendlier policy are all the same act.",
+      "rationale": "Every other rule in this catalog is enforced by this framework, so this is the rule that decides whether any of them mean anything. A threshold that moves when it blocks something is not a threshold, and the moment of temptation is exactly the moment it matters — nobody weakens a standard that is not currently in their way. The failure is also self-concealing: once the check has been changed, the evidence that it used to fail is gone, and everything downstream reports success.",
+      "remediation": "Restore the standard, test, or determination to what it was. If the change is genuinely warranted on its merits, make it as a separate, argued change that does not also deliver the conclusion it enables — and record the reasoning where a reader can weigh it.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "NOT MECHANICALLY EVALUATED, and it cannot be. A rule that could detect its own circumvention would have to be outside the system it protects. What exists instead is five mechanical defences, each with a test that fails if the defence is removed: an exception declared against a prohibition is rejected rather than recorded; the human-reviewed source inventory pins every standard and prohibition, so deleting or demoting one breaks the build; catalog lifecycle fields mean a prohibition can only be superseded with a recorded successor, in a diff; decision digests and policy digests make edited history and retroactively relaxed thresholds visible; and the evaluator's evaluated-rule set is asserted against its actual detectors. The honest limit, stated in Standard 21 rather than hidden: a human with commit access can change anything here. The guarantee is not that weakening is impossible, but that it cannot be silent."
+    }
+  ]
+}

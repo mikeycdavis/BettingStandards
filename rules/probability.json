@@ -1,0 +1,62 @@
+{
+  "$comment": "Rule catalog — probability. Standards 4 and 6.",
+  "rules": [
+    {
+      "id": "probability.implied-from-price",
+      "title": "Implied probability is computed from the offered price",
+      "standard": 4,
+      "category": "probability",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "full",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "The recorded implied probability equals the reciprocal of the offered decimal odds.",
+      "rationale": "Implied probability is what the price charges. Recording it separately from the fair probability is what keeps the bookmaker's margin visible instead of letting it disappear into an edge calculation.",
+      "remediation": "Recompute the implied probability as 1 divided by the decimal odds.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Full assurance: the value is recomputed from the recorded price."
+    },
+    {
+      "id": "probability.fair-source-recorded",
+      "title": "The estimated fair probability names its source",
+      "standard": 6,
+      "category": "probability",
+      "level": "required",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "partial",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Every estimated fair probability records what produced it — a named model and run, a documented method, or a person — and when the estimate was made.",
+      "rationale": "This pack consumes probability estimates rather than producing them, so the estimate is an input it cannot check. What it can insist on is that the input be attributable: an estimate with no source cannot be distinguished from a number chosen to justify a wager.",
+      "remediation": "Record the model, run, or method that produced the estimate, and the time it was produced.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "Establishes that a source is named, not that the named source produced the number or that the number is any good. Whether a prediction deserves belief is upstream of this pack (ADR 0001)."
+    },
+    {
+      "id": "probability.no-gamblers-fallacy",
+      "title": "Probability estimates are never adjusted by the gambler's fallacy",
+      "standard": 6,
+      "category": "probability",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "manual-review",
+      "assurance": "none",
+      "nonExemptible": true,
+      "introducedIn": "1.0.0",
+      "description": "No probability estimate is raised or lowered on the grounds that an independent outcome is overdue, has 'run hot', or must balance out. Streaks in independent events carry no information about the next one.",
+      "rationale": "The fallacy is persuasive precisely because it feels like evidence. A probability adjusted for a streak has been moved by something that is not information, and every number downstream of it inherits the error while looking exactly as rigorous as before.",
+      "remediation": "Estimate the probability from causal factors. If a streak is genuinely informative — fatigue, injury, a changed system — record the causal mechanism, not the streak.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null,
+      "$assuranceNote": "NOT MECHANICALLY EVALUATED. The reasoning behind an estimate is not in the record, and a text scan for words like 'due' would catch the careless case while missing the substance and flagging honest prose. This rule reports not-evaluated unless a human attests to it. It MUST NOT be reported as satisfied because nothing was found."
+    }
+  ]
+}

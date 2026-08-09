@@ -1,0 +1,23 @@
+{
+  "$comment": "A deliberately broken catalog: a prohibition that forgot to be non-exemptible. If the loader ever accepts this, every prohibition in the pack becomes waivable by omission, and the file would look entirely ordinary.",
+  "rules": [
+    {
+      "id": "bankroll.no-example-prohibition",
+      "title": "A prohibition that forgot to be non-exemptible",
+      "standard": 12,
+      "category": "bankroll",
+      "level": "forbidden",
+      "severity": "error",
+      "validationType": "structural",
+      "assurance": "partial",
+      "nonExemptible": false,
+      "introducedIn": "1.0.0",
+      "description": "Exists only to be rejected by the catalog loader.",
+      "rationale": "A waivable prohibition is not a prohibition.",
+      "remediation": "Set nonExemptible to true.",
+      "deprecatedIn": null,
+      "supersededBy": null,
+      "removedIn": null
+    }
+  ]
+}
