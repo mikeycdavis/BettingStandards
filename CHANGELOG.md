@@ -34,8 +34,23 @@ attests. They prohibit motives that no record contains.
 - Invariant checks: `inventory`, `fidelity`, `policy`, `diagrams`.
 - Verdict `BLOCKED_BY_INVARIANT` added to the four inherited from the reference framework.
 
-144 tests, zero third-party dependencies. CI has no install step, which is the dependency policy made
+159 tests, zero third-party dependencies. CI has no install step, which is the dependency policy made
 structural rather than documented.
+
+### The baseline is executable
+
+`test/baseline.test.mjs` asserts the published v1.0.0 shape: 21 standards, 51 rules, 23 non-exemptible
+prohibitions, 8 manual-review rules claimed by nothing, coverage of 41/51, verdict COMPLIANT at 94%,
+no dependency on any sibling repository, and both architectural anchors present in the README, the
+standards that own them, and the templates an agent is handed.
+
+It exists because a baseline left as prose drifts. A rule gets added without an inventory entry;
+coverage creeps up because a lexical heuristic was quietly counted as evaluation; a prohibition loses
+its non-exemptible flag in a refactor. None of those announces itself.
+
+Changing the baseline means editing those numbers in the same commit as the change that moved them.
+That is the point, not a workaround — it is this framework applying to itself the rule it applies to
+everyone else.
 
 ### Divergences from the reference framework
 

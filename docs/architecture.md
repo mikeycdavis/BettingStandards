@@ -20,7 +20,7 @@ padded.
 | Dependencies | **None.** Zero third-party packages, enforced structurally — `.github/workflows/ci.yml` has no install step, so adding a dependency breaks the build (ADR 0006) |
 | Parsing | Hand-written: `scripts/yaml.mjs` (strict YAML subset), `scripts/jsonschema.mjs` (JSON Schema 2020-12 subset) |
 | Data formats | JSON for machine-written decision records; YAML for human-authored configuration |
-| Tests | `node:test` + `node:assert/strict` — 144 tests across 8 files |
+| Tests | `node:test` + `node:assert/strict` — 159 tests across 9 files |
 | Diagrams | Mermaid, text-compared rather than rendered (keeps the zero-dependency guarantee) |
 
 ## The three-way separation

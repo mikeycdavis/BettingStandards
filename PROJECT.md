@@ -24,7 +24,7 @@ every construct outside the supported subset is a hard error, never a best guess
 | `rules/` | 13 category files: the machine-readable rule catalog |
 | `schemas/` | decision record, betting policy, project policy |
 | `scripts/` | CLI, betting arithmetic, decision checker, invariant checks |
-| `test/` | 144 tests plus known-negative fixtures |
+| `test/` | 159 tests plus known-negative fixtures |
 | `examples/` | worked decisions, walkthroughs, one document per prohibition |
 | `templates/` | what `standards init` copies into an adopting project |
 | `design/` | concept model, architecture and milestones |
@@ -34,7 +34,7 @@ every construct outside the supported subset is a hard error, never a best guess
 ## Commands
 
 ```bash
-npm test           # 144 tests
+npm test           # 159 tests
 npm run check      # re-derive every number in examples/ledger
 npm run validate   # the verdict — the CI gate
 npm run audit      # evidence, no verdict
