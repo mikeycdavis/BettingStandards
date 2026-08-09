@@ -1,0 +1,71 @@
+{
+  "$comment": "THE CANONICAL ENUMERATION. Reviewed by a human and committed; scripts/inventory.mjs compares extraction from the source prompts AGAINST this file and never regenerates it. Regenerating it from a run would destroy the guarantee it exists to provide: that a parser which becomes more or less forgiving can only DISAGREE with the enumeration, never redefine it. It is also protection #2 of the standards-integrity invariant — a prohibition cannot be deleted, renamed, or demoted without failing here.",
+  "source": "artifacts/prompts/original-prompt.md",
+  "reviewedAt": "2026-08-09",
+
+  "standards": {
+    "expectedCount": 21,
+    "$comment": "Standards 3-20 own the eighteen bullets of the source's '## Required standards' list, in the order the source gives them. Standards 1, 2, and 21 own the three named sections that are not bullets: the fundamental invariant, the decision pipeline, and the must-never rules.",
+    "items": [
+      { "number": 1, "title": "The Fundamental Invariant", "file": "standards/01-the-fundamental-invariant.md", "sourceSection": "Fundamental invariant", "sourceItem": null },
+      { "number": 2, "title": "The Decision Pipeline", "file": "standards/02-the-decision-pipeline.md", "sourceSection": "Decision pipeline", "sourceItem": null },
+      { "number": 3, "title": "Odds Conversion", "file": "standards/03-odds-conversion.md", "sourceSection": "Required standards", "sourceItem": "odds conversion" },
+      { "number": 4, "title": "Implied Probability", "file": "standards/04-implied-probability.md", "sourceSection": "Required standards", "sourceItem": "implied probability" },
+      { "number": 5, "title": "Vig", "file": "standards/05-vig.md", "sourceSection": "Required standards", "sourceItem": "vig" },
+      { "number": 6, "title": "Fair Probability", "file": "standards/06-fair-probability.md", "sourceSection": "Required standards", "sourceItem": "fair probability" },
+      { "number": 7, "title": "Edge", "file": "standards/07-edge.md", "sourceSection": "Required standards", "sourceItem": "edge" },
+      { "number": 8, "title": "Expected Value", "file": "standards/08-expected-value.md", "sourceSection": "Required standards", "sourceItem": "expected value" },
+      { "number": 9, "title": "Uncertainty Discount", "file": "standards/09-uncertainty-discount.md", "sourceSection": "Required standards", "sourceItem": "uncertainty discount" },
+      { "number": 10, "title": "Minimum Edge", "file": "standards/10-minimum-edge.md", "sourceSection": "Required standards", "sourceItem": "minimum edge" },
+      { "number": 11, "title": "Bankroll Management", "file": "standards/11-bankroll-management.md", "sourceSection": "Required standards", "sourceItem": "bankroll management" },
+      { "number": 12, "title": "Unit Sizing", "file": "standards/12-unit-sizing.md", "sourceSection": "Required standards", "sourceItem": "unit sizing" },
+      { "number": 13, "title": "Maximum Exposure", "file": "standards/13-maximum-exposure.md", "sourceSection": "Required standards", "sourceItem": "maximum exposure" },
+      { "number": 14, "title": "Correlated Bets", "file": "standards/14-correlated-bets.md", "sourceSection": "Required standards", "sourceItem": "correlated bets" },
+      { "number": 15, "title": "Line Movement", "file": "standards/15-line-movement.md", "sourceSection": "Required standards", "sourceItem": "line movement" },
+      { "number": 16, "title": "Stale Predictions", "file": "standards/16-stale-predictions.md", "sourceSection": "Required standards", "sourceItem": "stale predictions" },
+      { "number": 17, "title": "Closing-Line Value", "file": "standards/17-closing-line-value.md", "sourceSection": "Required standards", "sourceItem": "closing-line value" },
+      { "number": 18, "title": "Record Keeping", "file": "standards/18-record-keeping.md", "sourceSection": "Required standards", "sourceItem": "record keeping" },
+      { "number": 19, "title": "Evaluation of the Betting Process", "file": "standards/19-evaluation-of-the-betting-process.md", "sourceSection": "Required standards", "sourceItem": "evaluation of betting process" },
+      { "number": 20, "title": "Pass Decisions", "file": "standards/20-pass-decisions.md", "sourceSection": "Required standards", "sourceItem": "pass decisions" },
+      { "number": 21, "title": "Prohibited Behaviors and the Integrity Invariant", "file": "standards/21-prohibited-behaviors-and-the-integrity-invariant.md", "sourceSection": "Must-never rules", "sourceItem": null }
+    ]
+  },
+
+  "mustNever": {
+    "expectedCount": 23,
+    "$comment": "Every bullet of the source's '## Must-never rules' list, mapped to the forbidden catalog rule that carries it and the standard whose Requirements section states it normatively. Bullets 8 and 9 are the two directions of one behaviour (judging a decision by its result) and deliberately share one rule; the rule's description cites both. `integrity.no-standard-weakening` is NOT in this list because it comes from the expanded brief, not from this bullet list — see mustNeverFromExpandedBrief below.",
+    "items": [
+      { "bullet": "bet solely because a team/player is likely to win", "ruleId": "edge.no-probability-only-bets", "standard": 7 },
+      { "bullet": "recommend a wager without considering the offered price", "ruleId": "decision.no-priceless-recommendations", "standard": 2 },
+      { "bullet": "call something positive EV without supporting probability and price calculations", "ruleId": "ev.no-unsupported-ev-claims", "standard": 8 },
+      { "bullet": "ignore vig", "ruleId": "vig.no-ignored-vig", "standard": 5 },
+      { "bullet": "chase losses", "ruleId": "bankroll.no-chasing-losses", "standard": 12 },
+      { "bullet": "use Martingale-style loss recovery", "ruleId": "bankroll.no-martingale", "standard": 12 },
+      { "bullet": "increase bet size because previous bets lost", "ruleId": "bankroll.no-loss-driven-sizing", "standard": 12 },
+      { "bullet": "treat a winning wager as proof it was a good bet", "ruleId": "decision.no-resulting", "standard": 1 },
+      { "bullet": "treat a losing wager as proof it was a bad bet", "ruleId": "decision.no-resulting", "standard": 1 },
+      { "bullet": "fabricate odds", "ruleId": "odds.no-fabrication", "standard": 3 },
+      { "bullet": "fabricate line movement", "ruleId": "line.no-fabricated-movement", "standard": 15 },
+      { "bullet": "fabricate edge", "ruleId": "edge.no-fabricated-edge", "standard": 7 },
+      { "bullet": "fabricate expected value", "ruleId": "ev.no-fabricated-ev", "standard": 8 },
+      { "bullet": "hide uncertainty", "ruleId": "uncertainty.no-hidden-uncertainty", "standard": 9 },
+      { "bullet": "recommend a wager merely to create action", "ruleId": "decision.no-action-bets", "standard": 20 },
+      { "bullet": "force a daily bet quota", "ruleId": "decision.no-bet-quota", "standard": 20 },
+      { "bullet": "recommend increasing risk because someone is \"due\"", "ruleId": "bankroll.no-due-theory", "standard": 12 },
+      { "bullet": "use gambler's-fallacy reasoning", "ruleId": "probability.no-gamblers-fallacy", "standard": 6 },
+      { "bullet": "ignore correlated exposure", "ruleId": "exposure.no-ignored-correlation", "standard": 14 },
+      { "bullet": "exceed defined bankroll/exposure constraints", "ruleId": "exposure.no-cap-breaches", "standard": 13 },
+      { "bullet": "describe any wager as guaranteed", "ruleId": "uncertainty.no-guaranteed-language", "standard": 9 },
+      { "bullet": "use historical backtests that leak future information", "ruleId": "evaluation.no-lookahead-backtests", "standard": 19 },
+      { "bullet": "silently alter historical recommendations after results are known", "ruleId": "record.no-silent-revision", "standard": 18 }
+    ]
+  },
+
+  "mustNeverFromExpandedBrief": {
+    "expectedCount": 1,
+    "$comment": "The standards-integrity invariant, required by artifacts/prompts/expanded-brief.md rather than by the original prompt's bullet list. Enumerated separately so the two sources stay distinguishable and neither can absorb the other's obligations.",
+    "items": [
+      { "ruleId": "integrity.no-standard-weakening", "standard": 21, "sourceSection": "Standards integrity invariant" }
+    ]
+  }
+}
