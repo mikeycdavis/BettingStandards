@@ -1,0 +1,13 @@
+flowchart TD
+    P["prediction<br/><i>input — provenance required</i>"] --> O["offered odds<br/><b>Standard 3</b>"]
+    O --> I["implied probability<br/><b>Standard 4</b>"]
+    I --> V["vig removal<br/><b>Standard 5</b>"]
+    V --> F["estimated fair probability<br/><b>Standard 6</b>"]
+    F --> U["uncertainty<br/><b>Standard 9</b>"]
+    U --> E["edge<br/><b>Standards 7, 10</b>"]
+    E --> EV["expected value<br/><b>Standard 8</b>"]
+    EV --> B["bankroll impact<br/><b>Standards 11, 12</b>"]
+    B --> X["exposure / correlation<br/><b>Standards 13, 14</b>"]
+    X --> D{"BET or PASS<br/><b>Standard 20</b>"}
+    D -->|all gates pass| BET["BET"]
+    D -->|any gate fails| PASS["PASS<br/><i>a successful decision</i>"]

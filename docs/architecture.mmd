@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph sources["Source of truth (committed, human-reviewed)"]
+        prompts["artifacts/prompts/<br/>two governing briefs"]
+        inv["standards-source-inventory.json<br/>21 standards, 23 prohibitions"]
+        std["standards/01..21<br/>normative documents"]
+    end
+
+    subgraph identity["Identity — what rules exist"]
+        cat["rules/*.json<br/>51 rules, 13 categories"]
+        catmjs["catalog.mjs<br/>loader + assertBindings"]
+    end
+
+    subgraph config["Applicability — what applies here"]
+        pp["project-policy.yml<br/>applicability / exceptions / attestations"]
+        bp["betting-policy.yml<br/>thresholds and caps"]
+        yaml["yaml.mjs + jsonschema.mjs<br/>strict readers"]
+    end
+
+    subgraph evidence["Evidence — what was observed"]
+        ledger["examples/ledger/*.json<br/>decision records"]
+        betmath["betmath.mjs<br/>pure arithmetic"]
+        dec["decisions.mjs<br/>re-derive + decision rule"]
+    end
+
+    subgraph verdict["Verdict — what it means"]
+        comp["compliance.mjs<br/>5 verdicts incl. BLOCKED_BY_INVARIANT"]
+        cli["standards.mjs<br/>init plan check audit validate explain status"]
+    end
+
+    subgraph guards["Invariant checks (CI)"]
+        invchk["inventory.mjs"]
+        fid["fidelity.mjs"]
+        dia["diagrams.mjs"]
+    end
+
+    prompts -->|"extract and compare"| invchk
+    inv --> invchk
+    invchk -->|"pins the register"| cat
+    std -->|"verbatim claims + cited paths"| fid
+    cat --> catmjs
+    catmjs -->|"rule identity"| comp
+    pp --> yaml
+    bp --> yaml
+    yaml -->|"applicability"| comp
+    ledger --> dec
+    betmath -->|"recompute every value"| dec
+    dec -->|"findings bound to rule ids"| comp
+    comp --> cli
+    cli -->|"exit 0 / 1 / 2"| out["CI gate"]
