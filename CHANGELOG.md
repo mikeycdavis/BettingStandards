@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.0.1 — 2026-08-09
+
+**Interoperability metadata. No normative or evaluator semantic change.**
+
+Adds `standards-adapter.json`, a machine-readable declaration of how this pack is invoked and how its
+result is read, against the schema owned by StandardsEnforcer. Nothing in it is new information: it
+names the `validate` subcommand that has always produced the authoritative verdict, the target
+argument that has always been positional, and the five statuses the pack has always emitted.
+
+The declaration exists because `check` also runs cleanly and returns a verdict-shaped object while
+answering a different question — it re-derives decision records. An orchestrator guessing between the
+two would get a confident answer to a question nobody asked. Now it does not guess, because this pack
+states which command carries its verdict rather than leaving it to be inferred.
+
+`test/adapter-contract.test.mjs` is why the declaration can be trusted. It builds the invocation from
+the contract, runs it, runs the documented invocation directly, and requires the two results to be
+identical. A declaration that drifts from the CLI it describes fails this pack's own suite.
+
+### Why a new release rather than a retag
+
+The contract did not exist at `v1.0.0`, so `v1.0.0` cannot be made to claim it, and a consumer reads
+the declaration out of the pinned checkout rather than from `main`. A released product acquired a new
+public machine-readable interface, so a new release publishes that interface.
+
+### Unchanged
+
+Every standard, every rule, and every level, severity, disposition and assurance value; the verdict
+vocabulary; the scoring; the exit codes. The adapter declaration and its fidelity test are the only
+substantive changes since `v1.0.0`.
+
+That claim is executable rather than asserted. `test/baseline.test.mjs` pins the published shape, and
+the only field in it that moved is `version` — 21 standards, 51 rules at 25/3/23, 23 non-exemptible
+prohibitions, 8 manual-review, 41 evaluated, 13 fully machine-represented, `COMPLIANT` at 94, all
+still passing untouched. 163 tests pass, as at `v1.0.0`.
+
 ## 1.0.0 — 2026-08-09
 
 First release. Everything below is introduced in this version, so every catalog rule carries
