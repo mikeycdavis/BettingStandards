@@ -1,67 +1,71 @@
 name: ci
 
+# THIS WORKFLOW DOES NOT DEFINE THE PIPELINE.
+#
+# The stage list lives in ci/pipeline.json and is executed by scripts/ci-stages.mjs. The same runner,
+# reading the same manifest, is what the local Docker gate executes (scripts/ci.ps1 | ci.sh). There
+# is deliberately no second copy of the stage list here: the previous version of this file listed the
+# eight steps inline, and keeping that would have meant a local pass and a hosted pass could be
+# claims about different pipelines.
+#
+# Relationship to the local gate, stated plainly rather than implied:
+#
+#   ci/pipeline.json  ──▶  scripts/ci-stages.mjs  ──┬──▶  scripts/ci.* (Docker, the local gate)
+#                                                   └──▶  this workflow (GitHub-hosted)
+#
+# The LOCAL Docker run is the authoritative gate for this repository. A PR is verified by
+# scripts/submit-pr.* before it is ever pushed; see docs/local-ci.md. This workflow is a second
+# opinion running on GitHub's infrastructure, and it is not required to be green for the local
+# invariant to hold — which matters, because hosted Actions on this account have run exactly once
+# and failed before executing a single step.
+
 on:
   push:
     branches: [main]
   pull_request:
 
 jobs:
-  test:
+  # GitHub-hosted: runs the pipeline directly on the runner. Docker is not used here because the
+  # runner is already an ephemeral, clean machine — the isolation the container provides locally is
+  # what a fresh runner gives for free. Both paths execute the identical stage list.
+  pipeline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
+          # Matches ci/pipeline.json → runtime.node, so a failure here reproduces in the container.
           node-version: "20"
 
       # No install step. This repository has zero third-party dependencies, and that decision is
       # enforced structurally rather than by policy: if an `npm ci` ever appears here, the decision
-      # changed and ADR 0006 needs revisiting.
+      # changed and ADR 0006 needs revisiting. test/local-ci.test.mjs asserts this file has none.
 
-      # Proves the standards series and the prohibition register have not silently changed shape.
-      # artifacts/standards-source-inventory.json was reviewed by a human and committed; this
-      # compares extraction from the source prompts *against* it rather than re-deriving counts.
-      # It is also protection #2 of the standards-integrity invariant: a prohibition cannot be
-      # deleted, renamed, or reclassified without failing here.
-      - name: Source inventory
-        run: npm run inventory
+      - name: Run the pipeline (ci/pipeline.json)
+        run: node scripts/ci-stages.mjs --verbose
+        env:
+          CI_ENVIRONMENT: github-hosted
+          CI_COMMIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_BRANCH: ${{ github.head_ref || github.ref_name }}
 
-      # Holds each standard to its own word: any block claiming to be verbatim from a source prompt
-      # must be verbatim, and any examples/ path a standard cites must exist.
-      - name: Source fidelity
-        run: npm run fidelity
+      # The machine-readable result, kept for the same reason the local run writes one: a verdict you
+      # cannot inspect afterwards is a verdict you have to take on faith.
+      - name: Upload run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-ci-result
+          path: artifacts/local-ci/latest.json
+          if-no-files-found: warn
 
-      # Validates project-policy.yml and betting-policy.yml against their schemas. Exit 2 (malformed)
-      # and exit 1 (a compliance condition such as an expired exception) are both failures here, and
-      # both are meant to be: a policy nothing can read is worse than one that reports a problem.
-      - name: Policies
-        run: npm run policy
-
-      # Mermaid source vs its embedded copies. Text comparison, no rendering — which is what lets a
-      # zero-dependency repository enforce diagram freshness at all.
-      - name: Diagram freshness
-        run: npm run diagrams
-
-      # Re-derives every recorded number in examples/ledger from its inputs and re-evaluates the
-      # decision rule. This is the check the whole pack exists to make mechanical, so it runs before
-      # the unit tests: a broken worked example should fail with its own report, not as a test name.
-      - name: Decision records
-        run: npm run check
-
-      - name: Test
-        run: npm test
-
-      # The standards repository is audited by its own audit. Deliberately not --strict: that flag
-      # fails on warnings too, which turns every advisory finding into a broken build, and the
-      # predictable result is that someone disables the step. The gate on *errors* is the assertion
-      # in test/audit.test.mjs that this repository has no error-severity findings, which ran above.
-      - name: Audit this repository
-        run: npm run audit
-
-      # The gate. `validate` applies this repository's own policy and exits 1 on a required-rule
-      # failure or a forbidden-rule violation (BLOCKED_BY_INVARIANT), and 2 if a policy cannot be
-      # read. This is the command adopting projects are told to gate on, so it is the one this
-      # repository gates on.
-      - name: Validate this repository
-        run: npm run validate
+  # Optional, and not enabled: a self-hosted runner would execute the SAME Docker gate a developer
+  # runs, with no redesign. Documented rather than configured, because this repository has no
+  # self-hosted runner today and a workflow referencing one that does not exist would sit queued
+  # forever — which is indistinguishable from passing, and worse than absent.
+  #
+  #   docker-gate:
+  #     runs-on: [self-hosted, linux, docker]
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - run: ./scripts/ci.sh

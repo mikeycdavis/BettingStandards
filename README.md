@@ -39,6 +39,25 @@ To adopt it in your own project:
 node <path-to-this-repo>/scripts/standards.mjs init . --dry-run
 ```
 
+## Contributing: local CI and verified pull requests
+
+The full pipeline runs in Docker on your machine, and it is what gates a pull request. GitHub stays
+the review system; it is not what proves the branch passes.
+
+```powershell
+.\scripts\ci.ps1          # run the complete pipeline in an ephemeral container
+.\scripts\submit-pr.ps1   # verify, then push exactly what was verified, then open the PR
+```
+
+> **The commit pushed for a PR is exactly the commit that passed the complete local Docker CI
+> pipeline.**
+
+Eight stages, declared once in [`ci/pipeline.json`](ci/pipeline.json) and shared with
+`.github/workflows/ci.yml` so the two cannot drift. See **[docs/local-ci.md](docs/local-ci.md)** for
+prerequisites, isolation behaviour, debugging a failed container, and the limits of the guarantee —
+and [ADR 0007](artifacts/adr/0007-local-docker-ci-as-the-authoritative-gate.md) for why the local run
+is the authoritative one.
+
 ## The standards
 
 | # | Standard | Prohibitions it carries |

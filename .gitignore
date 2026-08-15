@@ -1,3 +1,9 @@
 node_modules/
 *.log
 .DS_Store
+
+# Transient local-CI verification output (scripts/ci.ps1 | ci.sh). Deliberately not committed: this
+# repository has an intentional evidence-retention policy for decision records and audit findings,
+# and a local pass claim is not that kind of evidence. Committing it would make an unreviewed,
+# machine-generated assertion sit alongside reviewed artifacts under artifacts/.
+artifacts/local-ci/
