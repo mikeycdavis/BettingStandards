@@ -1,0 +1,69 @@
+# The isolated CI environment. Invoked only through scripts/ci.ps1 or scripts/ci.sh, which supply a
+# unique `-p` project name so that concurrent repositories, or two runs of this one, cannot collide
+# on container, network, or volume names.
+#
+# Run it directly at your own risk: without the wrapper you get the default project name, and the
+# cleanup guarantees documented in docs/local-ci.md are the wrapper's, not compose's.
+
+services:
+  ci:
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+    # Pinned so the built image is stable across runs even though the compose PROJECT name is unique
+    # per run. Containers and networks are therefore ephemeral and collision-free, while the layer
+    # cache survives — and `docker compose down` removes the run's containers without deleting the
+    # image other runs depend on.
+    image: betting-standards-ci:local
+    # NO NETWORK. docs/architecture.md states that this repository has "no server, no database, and
+    # no network I/O". Running the pipeline with the network removed turns that from a claim into an
+    # enforced property: a check that quietly started reaching the internet fails here rather than
+    # passing on a machine that happened to be online.
+    #
+    # A repository reusing this pattern that *does* need dependencies removes this line, declares its
+    # services below, and lists them under `depends_on` with `condition: service_healthy`.
+    network_mode: none
+    environment:
+      # Set by scripts/ci.* from the SHA it resolved on the host. The image has no .git, so this is
+      # the only way the run knows which commit it is evaluating — and it is the same value the
+      # submit-pr invariant is checked against.
+      CI_COMMIT_SHA: "${CI_COMMIT_SHA:-}"
+      CI_BRANCH: "${CI_BRANCH:-}"
+    volumes:
+      # The ONLY host path mounted, and it is write-only output: the machine-readable run result.
+      # Nothing else about the host is visible to the container — no source mount, no SSH agent, no
+      # Docker socket, no credential helper. See docs/local-ci.md § Security.
+      - ./artifacts/local-ci:/repo/artifacts/local-ci
+    # A CI run must terminate with a verdict; a container that restarts on failure would hide one.
+    restart: "no"
+    init: true
+#
+# ── Extension point for repositories that DO have dependencies ────────────────────────────────────
+#
+# This repository declares none (ci/pipeline.json → services.required is empty). The reusable shape
+# is below, kept as a comment rather than as a disabled service so nothing here is a fiction:
+#
+#   services:
+#     db:
+#       image: mcr.microsoft.com/mssql/server:2022-latest
+#       environment:
+#         ACCEPT_EULA: "Y"
+#         MSSQL_SA_PASSWORD: "${CI_DB_PASSWORD:?set a throwaway password in the CI shell, never here}"
+#       healthcheck:
+#         test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+#         interval: 5s
+#         timeout: 5s
+#         retries: 30
+#         start_period: 20s
+#       tmpfs:
+#         - /var/opt/mssql/data     # disposable by construction: no named volume, no host path
+#     ci:
+#       depends_on:
+#         db:
+#           condition: service_healthy   # a real health gate, not a sleep
+#
+# Three rules that make that safe, and that scripts/ci.* already assume:
+#   - the database lives in the compose project, so `down -v` destroys it and nothing else;
+#   - the password comes from the CI shell environment, never from a committed file;
+#   - the port is NOT published to the host, so a developer's own SQL Server on 1433 is untouched
+#     and unreachable from here.

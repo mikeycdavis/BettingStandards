@@ -1,0 +1,35 @@
+# The CI environment for this repository.
+#
+# WHY THE TREE IS COPIED AND NOT MOUNTED. The image contains a snapshot of the working tree taken at
+# build time. It is not a bind mount of the repository. Two consequences, both deliberate:
+#
+#   1. The container cannot modify the developer's working tree, so a CI run can never be the reason
+#      HEAD or the index moved during verification.
+#   2. What was tested is a fixed tree. Combined with the clean-tree and unchanged-SHA checks in
+#      scripts/submit-pr.*, that is what makes "the commit pushed is the commit that passed" a
+#      property rather than an intention.
+#
+# NO INSTALL STEP, ON PURPOSE. This repository has zero third-party dependencies and that decision is
+# enforced structurally (ADR 0006): there is no `npm ci` here, so adding a dependency breaks the
+# build rather than passing review. Do not add one to "fix" a failure.
+
+FROM node:20-alpine
+
+# git is present for one reason: test/local-ci.test.mjs builds throwaway repositories to prove the
+# submit-pr SHA guard actually refuses. It is not used to build or evaluate this repository.
+RUN apk add --no-cache git
+
+WORKDIR /repo
+
+# Runs as the unprivileged `node` user (uid 1000) that the base image already provides. CI executes
+# repository code; it does not need root to do so.
+COPY --chown=node:node . /repo
+
+USER node
+
+ENV CI=true \
+    CI_ENVIRONMENT=docker \
+    NODE_ENV=test
+
+# No CMD default beyond the pipeline itself. compose.ci.yml overrides it only to add flags.
+CMD ["node", "scripts/ci-stages.mjs"]

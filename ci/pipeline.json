@@ -1,0 +1,62 @@
+{
+  "$comment": "THE AUTHORITATIVE CI PIPELINE. Both the local Docker run (scripts/ci.ps1 | ci.sh) and the GitHub workflow (.github/workflows/ci.yml) execute this list via scripts/ci-stages.mjs. Neither redefines it. Adding a check here adds it to both; there is deliberately no second place to edit.",
+  "schemaVersion": "1.0.0",
+  "runtime": {
+    "node": "20",
+    "$comment": "Pinned to match the version the GitHub workflow requests, so a failure that reproduces locally reproduces there. package.json declares engines.node >= 18; 20 is the tested floor."
+  },
+  "stages": [
+    {
+      "id": "inventory",
+      "name": "Source inventory",
+      "command": ["npm", "run", "inventory"],
+      "why": "Proves the standards series and the prohibition register have not silently changed shape. artifacts/standards-source-inventory.json was reviewed by a human and committed; this compares extraction from the source prompts against it rather than re-deriving counts. It is also protection #2 of the standards-integrity invariant: a prohibition cannot be deleted, renamed, or reclassified without failing here."
+    },
+    {
+      "id": "fidelity",
+      "name": "Source fidelity",
+      "command": ["npm", "run", "fidelity"],
+      "why": "Holds each standard to its own word: any block claiming to be verbatim from a source prompt must be verbatim, and any examples/ path a standard cites must exist."
+    },
+    {
+      "id": "policy",
+      "name": "Policies",
+      "command": ["npm", "run", "policy"],
+      "why": "Validates project-policy.yml and betting-policy.yml against their schemas. Exit 2 (malformed) and exit 1 (a compliance condition such as an expired exception) are both failures here, and both are meant to be: a policy nothing can read is worse than one that reports a problem."
+    },
+    {
+      "id": "diagrams",
+      "name": "Diagram freshness",
+      "command": ["npm", "run", "diagrams"],
+      "why": "Mermaid source vs its embedded copies. Text comparison, no rendering, which is what lets a zero-dependency repository enforce diagram freshness at all."
+    },
+    {
+      "id": "check",
+      "name": "Decision records",
+      "command": ["npm", "run", "check"],
+      "why": "Re-derives every recorded number in examples/ledger from its inputs and re-evaluates the decision rule. This is the check the whole pack exists to make mechanical, so it runs before the unit tests: a broken worked example should fail with its own report, not as a test name."
+    },
+    {
+      "id": "test",
+      "name": "Test",
+      "command": ["npm", "test"],
+      "why": "The unit and contract suite (node:test, no runner dependency)."
+    },
+    {
+      "id": "audit",
+      "name": "Audit this repository",
+      "command": ["npm", "run", "audit"],
+      "why": "The standards repository is audited by its own audit. Deliberately not --strict: that flag fails on warnings too, which turns every advisory finding into a broken build, and the predictable result is that someone disables the step. The gate on errors is the assertion in test/audit.test.mjs that this repository has no error-severity findings, which ran above."
+    },
+    {
+      "id": "validate",
+      "name": "Validate this repository",
+      "command": ["npm", "run", "validate"],
+      "why": "The gate. validate applies this repository's own policy and exits 1 on a required-rule failure or a forbidden-rule violation (BLOCKED_BY_INVARIANT), and 2 if a policy cannot be read. This is the command adopting projects are told to gate on, so it is the one this repository gates on."
+    }
+  ],
+  "services": {
+    "$comment": "This repository has no runtime services. docs/architecture.md: 'There is no server, no database, and no network I/O.' The CI container therefore runs with no network at all (compose.ci.yml sets network_mode: none), which turns that architectural claim into an enforced property rather than a statement. A repository reusing this pattern declares its dependencies in compose.ci.yml with healthchecks, and scripts/ci.* will wait on them; see docs/local-ci.md.",
+    "required": []
+  }
+}
