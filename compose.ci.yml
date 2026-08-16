@@ -10,11 +10,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.ci
-    # Pinned so the built image is stable across runs even though the compose PROJECT name is unique
-    # per run. Containers and networks are therefore ephemeral and collision-free, while the layer
-    # cache survives — and `docker compose down` removes the run's containers without deleting the
-    # image other runs depend on.
-    image: betting-standards-ci:local
+    # UNIQUE PER RUN, and this is load-bearing rather than tidiness.
+    #
+    # This was `betting-standards-ci:local` — a single shared tag. A unique compose PROJECT name
+    # isolates containers and networks, but it does NOT isolate an image tag, and the tag is what
+    # actually gets executed. Two concurrent runs of this repository interleave like this:
+    #
+    #     run A: build  → tag betting-standards-ci:local at A's tree
+    #     run B: build  → RETAGS betting-standards-ci:local at B's tree
+    #     run A: run    → executes B's code, reports PASS, records A's SHA
+    #
+    # That is a direct falsifier of "the pushed commit is exactly the commit that passed": commit A
+    # gets pushed on the strength of run B's code. The tag now carries the run id, so no other run
+    # can move it. scripts/ci.* additionally resolve the built image ID and execute that, and record
+    # it in the evidence file — so what ran is auditable rather than inferred from a tag.
+    #
+    # The layer cache is content-addressed and unaffected by the tag, so this costs nothing; the
+    # wrapper deletes its own tag on teardown, which frees the name without touching cached layers.
+    image: "betting-standards-ci:${CI_IMAGE_TAG:?scripts/ci.ps1 or ci.sh must set a unique tag per run}"
     # NO NETWORK. docs/architecture.md states that this repository has "no server, no database, and
     # no network I/O". Running the pipeline with the network removed turns that from a claim into an
     # enforced property: a check that quietly started reaching the internet fails here rather than
@@ -29,14 +42,21 @@ services:
       # submit-pr invariant is checked against.
       CI_COMMIT_SHA: "${CI_COMMIT_SHA:-}"
       CI_BRANCH: "${CI_BRANCH:-}"
-    volumes:
-      # The ONLY host path mounted. The pipeline uses it solely to write the machine-readable run
-      # result — but note this is a plain read-write bind mount: Docker is not enforcing that, and
-      # nothing here makes it write-only. The narrowness is the guarantee (one gitignored directory),
-      # not the direction of access.
-      # Nothing else about the host is visible to the container — no source mount, no SSH agent, no
-      # Docker socket, no credential helper. See docs/local-ci.md § Security.
-      - ./artifacts/local-ci:/repo/artifacts/local-ci
+      # The image ID scripts/ci.* resolved after building and is executing. Recorded in the evidence
+      # file so "which image actually ran" is auditable rather than inferred from a mutable tag.
+      CI_IMAGE_ID: "${CI_IMAGE_ID:-}"
+    # NO HOST PATHS ARE MOUNTED. Not one. No source mount, no SSH agent, no Docker socket, no
+    # credential helper, no home directory.
+    #
+    # The evidence file used to arrive via a bind mount of ./artifacts/local-ci. That assumed the
+    # host-created directory was writable by the container's uid 1000 — true on Docker Desktop, and
+    # frequently false on Linux or a self-hosted runner, where an otherwise passing pipeline would
+    # fail at the last step writing latest.json, with a permission error that looks nothing like the
+    # check it appears to come from.
+    #
+    # The result is now written inside the container and copied out with `docker cp` after the run,
+    # which works on a stopped container and needs no shared uid. That removes the failure mode
+    # instead of documenting it.
     # A CI run must terminate with a verdict; a container that restarts on failure would hide one.
     restart: "no"
     init: true

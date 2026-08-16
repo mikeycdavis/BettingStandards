@@ -179,6 +179,11 @@ async function main() {
     branch,
     result: failed ? "failed" : "passed",
     environment: process.env.CI_ENVIRONMENT ?? "host",
+    // Which image actually executed this run. A tag is a mutable name; the ID is the thing. Recorded
+    // because "the pushed commit is the commit that passed" depends on this run having executed the
+    // image built from this run's tree, and an auditable ID is how that is checked after the fact
+    // rather than assumed.
+    imageId: process.env.CI_IMAGE_ID || null,
     node: process.version,
     startedAt: startedAt.toISOString(),
     completedAt: completedAt.toISOString(),

@@ -30,6 +30,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(path.join(ROOT, "ci", "pipeline.json"), "utf8"));
 const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
 
+/** Both host wrappers, asserted together so a fix applied to one but not the other is caught. */
+const wrappers = [
+  ["scripts/ci.sh", readFileSync(path.join(ROOT, "scripts", "ci.sh"), "utf8")],
+  ["scripts/ci.ps1", readFileSync(path.join(ROOT, "scripts", "ci.ps1"), "utf8")],
+];
+
 describe("ci/pipeline.json is the single definition of the pipeline", () => {
   test("declares stages, each with an id and a command", () => {
     assert.ok(Array.isArray(manifest.stages) && manifest.stages.length > 0, "no stages declared");
@@ -85,6 +91,54 @@ describe("ci/pipeline.json is the single definition of the pipeline", () => {
       .filter((line) => !/^\s*#/.test(line))
       .join("\n");
     assert.doesNotMatch(executable, /npm (ci|install)\b/, "an install step appeared; see ADR 0006");
+  });
+
+  test("each run executes an image no concurrent run can retag", () => {
+    // THE FALSIFIER FOR THE CONCURRENCY HOLE. compose.ci.yml pinned `betting-standards-ci:local`,
+    // a single shared tag. A unique compose project isolates containers and networks; it does not
+    // isolate a tag, and the tag is what gets executed:
+    //
+    //     run A build → tags :local at A's tree
+    //     run B build → RETAGS :local at B's tree
+    //     run A run   → executes B's code, records A's SHA
+    //
+    // That publishes commit A on the strength of run B's code, which falsifies the invariant this
+    // whole workflow exists to establish. These assertions fail against that implementation.
+    const compose = readFileSync(path.join(ROOT, "compose.ci.yml"), "utf8");
+    const imageLine = compose
+      .split("\n")
+      .find((line) => /^\s*image:/.test(line));
+
+    assert.ok(imageLine, "compose.ci.yml declares no image");
+    assert.match(
+      imageLine,
+      /\$\{CI_IMAGE_TAG/,
+      "the image tag is not per-run; a concurrent run can retag it between this run's build and its execution"
+    );
+
+    for (const [name, source] of wrappers) {
+      // The tag must be derived from the per-run identifier, not a constant that merely arrives
+      // through an environment variable.
+      assert.match(
+        source,
+        /CI_IMAGE_TAG\s*=\s*"?\$\(?\{?(Project|PROJECT)\}?"?/,
+        `${name} does not derive CI_IMAGE_TAG from the unique per-run project name`
+      );
+    }
+  });
+
+  test("the run container survives its own exit, so --keep-on-failure can keep it", () => {
+    // `--keep-on-failure` previously ran with `--rm`, so the container it promised to leave for
+    // inspection was deleted the moment the pipeline exited. An advertised debugging affordance that
+    // does not exist is worse than none, because it is discovered while debugging.
+    for (const [name, source] of wrappers) {
+      const runLine = source
+        .split("\n")
+        .find((line) => /compose.*\brun\b/.test(line) && /--no-TTY/i.test(line));
+      assert.ok(runLine, `${name} has no recognisable 'compose run' invocation`);
+      assert.doesNotMatch(runLine, /--rm\b/, `${name} still passes --rm; the kept container is deleted on exit`);
+      assert.match(runLine, /--name/, `${name} does not name the container, so it cannot be inspected or copied from`);
+    }
   });
 
   test("transient verification output is not committable", () => {
@@ -236,6 +290,20 @@ describe("submit-pr refuses to publish an unverified commit", { skip }, () => {
       assert.notEqual(r.status, 0);
       assert.match(`${r.stdout}${r.stderr}`, /modified while CI was running/);
       assert.equal(s.remoteRefs(), "");
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("refuses when base and head are the same branch, before pushing anything", () => {
+    // Previously this reached `gh pr create`, which fails -- but only AFTER the branch was pushed.
+    // A command that reports refusal must not have already published something.
+    const s = sandbox();
+    try {
+      const r = s.submit("exit 0", ["--base", "feature"]);
+      assert.notEqual(r.status, 0);
+      assert.match(`${r.stdout}${r.stderr}`, /base and head are both 'feature'/);
+      assert.equal(s.remoteRefs(), "", "the branch was pushed before the refusal");
     } finally {
       s.cleanup();
     }

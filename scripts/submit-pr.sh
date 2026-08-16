@@ -100,6 +100,15 @@ if [ "$BRANCH" = "$DEFAULT_BRANCH" ]; then
   exit 1
 fi
 
+# A PR from a branch to itself is not a PR. Checked BEFORE the push, not left to `gh pr create`:
+# otherwise the branch is published and only then does PR creation fail, which is a side effect from
+# a command that reported refusal.
+if [ "$BRANCH" = "$BASE" ]; then
+  echo "submit-pr: base and head are both '$BRANCH'. A branch cannot be a pull request against" >&2
+  echo "           itself. Pass --base with the branch you intend to merge into." >&2
+  exit 1
+fi
+
 # ── 3. Clean working tree ─────────────────────────────────────────────────────────────────────────
 # This is what makes "the tree that was verified" and "the commit that is pushed" the same object.
 # CI builds an image from the working tree; if the tree is clean and equals HEAD, CI tested HEAD.

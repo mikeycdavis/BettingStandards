@@ -98,6 +98,14 @@ if ($Branch -eq $DefaultBranch) {
     Stop-With "           Create a feature branch:  git switch -c my-change" 1
 }
 
+# A PR from a branch to itself is not a PR. Checked BEFORE the push, not left to `gh pr create`:
+# otherwise the branch is published and only then does PR creation fail, which is a side effect from
+# a command that reported refusal.
+if ($Branch -eq $Base) {
+    Write-Host "submit-pr: base and head are both '$Branch'. A branch cannot be a pull request against" -ForegroundColor Red
+    Stop-With "           itself. Pass -Base with the branch you intend to merge into." 1
+}
+
 # ── 3. Clean working tree ─────────────────────────────────────────────────────────────────────────
 # This is what makes "the tree that was verified" and "the commit that is pushed" the same object.
 $Dirty = & git status --porcelain

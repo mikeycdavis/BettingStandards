@@ -49,17 +49,27 @@ function Test-Tooling {
     if ($LASTEXITCODE -ne 0) { throw "the Docker daemon is not reachable. Start Docker Desktop and retry." }
 }
 
-# A project name unique to this run. Everything compose creates is namespaced under it, so teardown
-# can be exhaustive without any risk of touching a developer's own containers, networks, or volumes
-# -- including those of another repository running its CI at the same moment.
-$Project = "bs-ci-$PID-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+# Unique to this run. Everything compose creates is namespaced under it, so teardown is exhaustive
+# within the run and cannot touch another repository's containers, another run of this one, or a
+# developer's own services.
+$RunId = "$PID-$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+$Project = "bs-ci-$RunId"
+$Container = "bs-ci-run-$RunId"
 $Compose = @('-p', $Project, '-f', 'compose.ci.yml')
 $Status = 0
 
+# The image tag is unique too, and that is the fix for a real invariant hole rather than hygiene: a
+# shared tag can be retagged by a concurrent run between this run's build and its execution, so the
+# pipeline would evaluate another tree while recording this commit's SHA. See compose.ci.yml.
+$env:CI_IMAGE_TAG = $Project
+
 function Invoke-Cleanup {
-    # Scoped to THIS project by name. -v removes only volumes this project declared; it cannot reach
-    # a developer's database volume, which belongs to a different project.
+    # Scoped to THIS run by name. -v removes only volumes this project declared; it cannot reach a
+    # developer's database volume, which belongs to a different project. `rmi` drops this run's TAG
+    # only -- layers are content-addressed and stay cached for the next run.
+    docker rm -f $Container *>$null
     docker compose @Compose down -v --remove-orphans *>$null
+    docker rmi "betting-standards-ci:$($env:CI_IMAGE_TAG)" *>$null
 }
 
 try {
@@ -74,7 +84,7 @@ try {
     New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot 'artifacts/local-ci') | Out-Null
 
     Write-Host "ci: project $Project"
-    Write-Host "ci: building image (betting-standards-ci:local)"
+    Write-Host "ci: building image (betting-standards-ci:$($env:CI_IMAGE_TAG))"
     if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') {
         docker compose @Compose build --progress plain
     } else {
@@ -87,15 +97,29 @@ try {
         exit $Status
     }
 
+    # Resolve what was actually built and record it. Nothing else can move this tag, but recording
+    # the ID means the evidence names the image that ran rather than a name that pointed at it.
+    $env:CI_IMAGE_ID = (& docker image inspect --format '{{.Id}}' "betting-standards-ci:$($env:CI_IMAGE_TAG)" 2>$null)
+    if ($LASTEXITCODE -ne 0) { $env:CI_IMAGE_ID = '' } else { Write-Host "ci: image $($env:CI_IMAGE_ID)" }
+
     # `run` rather than `up`: this repository has no long-running services, and `run` yields the
     # pipeline's exit code directly. When dependencies are added to compose.ci.yml, `run` still
     # starts them and still honours `depends_on: condition: service_healthy` -- the wait is a real
     # health gate owned by compose, never a sleep in this script.
+    #
+    # --rm is deliberately NOT used. The container must survive its own exit so the evidence file can
+    # be copied out, and so -KeepOnFailure has something to leave behind. Teardown removes it.
     $StageArgs = @()
     if ($VerbosePreference -eq 'Continue') { $StageArgs += '--verbose' }
 
-    docker compose @Compose run --rm --no-TTY ci node scripts/ci-stages.mjs @StageArgs
+    docker compose @Compose run --no-TTY --name $Container ci node scripts/ci-stages.mjs @StageArgs
     $Status = $LASTEXITCODE
+
+    # Copied out rather than bind-mounted: no host directory has to be writable by the container's
+    # uid. Works on a stopped container, so a failed pipeline still yields its machine-readable
+    # result -- which is when it is most useful.
+    docker cp "${Container}:/repo/artifacts/local-ci/latest.json" (Join-Path $RepoRoot 'artifacts/local-ci/latest.json') *>$null
+    if ($LASTEXITCODE -ne 0) { Write-Host "ci: warning - could not copy the run result out of the container" -ForegroundColor Yellow }
 }
 catch {
     Write-Host "ci: $($_.Exception.Message)" -ForegroundColor Red
@@ -107,10 +131,14 @@ catch {
 
 if ($Status -ne 0 -and $KeepOnFailure) {
     Write-Host ""
-    Write-Host "ci: -KeepOnFailure set. Compose project '$Project' was NOT torn down." -ForegroundColor Yellow
-    Write-Host "ci: inspect it with:" -ForegroundColor Yellow
-    Write-Host "      docker compose -p $Project -f compose.ci.yml run --rm ci sh"
-    Write-Host "ci: and clean it up when finished with:" -ForegroundColor Yellow
+    Write-Host "ci: -KeepOnFailure set. Kept container '$Container' and image tag" -ForegroundColor Yellow
+    Write-Host "    'betting-standards-ci:$($env:CI_IMAGE_TAG)'. Inspect the failed run with:" -ForegroundColor Yellow
+    Write-Host "      docker logs $Container"
+    Write-Host "      docker cp ${Container}:/repo/artifacts/local-ci/latest.json ."
+    Write-Host "    or open a shell on the same image the run executed:" -ForegroundColor Yellow
+    Write-Host "      docker run --rm -it --network none betting-standards-ci:$($env:CI_IMAGE_TAG) sh"
+    Write-Host "    clean up when finished:" -ForegroundColor Yellow
+    Write-Host "      docker rm -f $Container; docker rmi betting-standards-ci:$($env:CI_IMAGE_TAG)"
     Write-Host "      docker compose -p $Project -f compose.ci.yml down -v --remove-orphans"
 } else {
     Invoke-Cleanup

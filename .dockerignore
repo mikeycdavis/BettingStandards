@@ -18,5 +18,8 @@ node_modules
 
 *.log
 .DS_Store
-Dockerfile.ci
-compose.ci.yml
+
+# Dockerfile.ci and compose.ci.yml are deliberately NOT excluded. test/local-ci.test.mjs asserts
+# properties OF the CI environment — that the image tag is per-run and cannot be retagged by a
+# concurrent run, that no host path is mounted — and a check that cannot see the file it checks
+# passes silently, which is the failure mode this repository exists to refuse.
