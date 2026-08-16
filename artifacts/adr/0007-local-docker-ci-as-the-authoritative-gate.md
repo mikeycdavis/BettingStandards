@@ -84,6 +84,30 @@ structurally: the CI image has no install step, and `test/local-ci.test.mjs` now
 the pipeline shells out to `docker`, `git`, and `gh`, and `docs/local-ci.md` says so plainly rather
 than letting the dependency claim imply more than it means.
 
+## The concurrency hole, and why it is recorded here
+
+The first implementation shipped a defect that review caught and that is worth recording rather than
+quietly fixing, because the reasoning error is reusable.
+
+`compose.ci.yml` pinned a single image tag, `betting-standards-ci:local`. The wrapper gave every run
+a unique compose *project* name, and the conclusion drawn from that — "runs are isolated" — was
+wrong. A project namespaces containers, networks, and volumes. It does not namespace an image tag,
+and the tag is the thing that executes. Two concurrent runs interleave as build-A, build-B, run-A,
+and run-A then evaluates B's tree while recording A's SHA.
+
+That is not a cache annoyance. It is a direct falsifier of the invariant: commit A gets pushed on the
+strength of run B's code. The original report called it "layer-cache races are possible", which
+understated a correctness defect as a performance note.
+
+The fix is a per-run tag, plus resolving the built image ID and recording it in the evidence, so what
+ran is auditable rather than inferred from a mutable name. It is demonstrated by running two
+worktrees concurrently — one sound, one with a corrupted diagram — and observing distinct images and
+each run reporting its own tree.
+
+**The general lesson:** isolation is only isolation of the things actually namespaced. Every shared
+mutable name between concurrent runs — a tag, a fixed path, a well-known port, a database name — is a
+candidate crossover, and "the containers are separate" does not cover any of them.
+
 ## Alternatives considered
 
 **Keep the pipeline in the workflow and call it from Docker.** Rejected: parsing YAML to discover the

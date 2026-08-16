@@ -57,6 +57,7 @@ make changes  →  git commit  →  submit-pr
                                    │
                                    ├─ verify git repository
                                    ├─ refuse the default branch
+                                   ├─ refuse base == head
                                    ├─ refuse a dirty working tree
                                    ├─ record HEAD                    ← the verified SHA
                                    ├─ run the full Docker CI pipeline
@@ -129,15 +130,42 @@ Two things follow, both stronger than the usual arrangement:
 - **The pipeline runs with `network_mode: none`.** The architectural claim of no network I/O is
   enforced, not asserted. A check that quietly started reaching the internet fails here instead of
   passing on a machine that happened to be online.
-- **One host path is mounted:** `./artifacts/local-ci`, used only for output — the run result. It is
-  a plain read-write bind mount; Docker enforces no direction on it, and the guarantee here is its
-  *narrowness*, not its permissions. No source mount, no SSH agent, no Docker socket, no credential
-  helper, no home directory.
+- **No host path is mounted. Not one.** No source mount, no SSH agent, no Docker socket, no
+  credential helper, no home directory. The run result is written inside the container and copied out
+  with `docker cp` afterwards, which works on a stopped container and needs no shared uid.
 
 **Nothing on your machine is touched.** Every compose resource is namespaced under a project name
 unique to the run (`bs-ci-<pid>-<epoch>`), so teardown is exhaustive within the run and cannot reach
-another repository's containers, your own services, or any volume you created. The built image is
-pinned to `betting-standards-ci:local` so the layer cache survives teardown.
+another repository's containers, your own services, or any volume you created.
+
+### Concurrent runs get their own image, and this is load-bearing
+
+The image tag carries the run id (`betting-standards-ci:bs-ci-<pid>-<epoch>`). It used to be a single
+shared `:local`, which was a hole in the invariant rather than untidiness. A unique compose project
+isolates containers and networks; it does **not** isolate a tag, and the tag is what executes:
+
+```
+run A: build → tags :local at A's tree
+run B: build → RETAGS :local at B's tree
+run A: run   → executes B's code, reports a result, records A's SHA
+```
+
+That publishes commit A on the strength of run B's code. The wrapper now also resolves the built
+image ID and records it in the evidence file, so *which image ran* is auditable rather than inferred
+from a mutable name. Teardown removes only that run's tag; layers are content-addressed, so the cache
+survives.
+
+**Demonstrated, not argued.** Two worktrees — one sound, one with a deliberately corrupted diagram —
+ran concurrently:
+
+| run | commit | result | failed stage | image |
+| --- | --- | --- | --- | --- |
+| good | `da94738` | passed | — | `88065f3705d1` |
+| bad | `0eb34c3` | failed | `diagrams` | `4d8694abe445` |
+
+Distinct images, each run reporting its own tree. Under the shared tag the dangerous crossover is the
+other direction: the *bad* run executing the *good* image, reporting **PASS while recording
+`0eb34c3`** — a broken commit published as verified.
 
 ### If you reuse this pattern in a repository that *does* have a database
 
@@ -162,14 +190,20 @@ To debug a failure, keep it:
 .\scripts\ci.ps1 -KeepOnFailure
 ```
 
-The script then prints the exact commands to inspect and to clean up, for example:
+The run does **not** use `--rm` — it previously did, which meant the container `--keep-on-failure`
+promised to leave for inspection was deleted the moment the pipeline exited. The container is removed
+explicitly at teardown instead, so keeping it actually keeps it. The script prints commands that work
+on a stopped container:
 
 ```bash
-docker compose -p bs-ci-12345-1786837178 -f compose.ci.yml run --rm ci sh
-docker compose -p bs-ci-12345-1786837178 -f compose.ci.yml down -v --remove-orphans
+docker logs bs-ci-run-12345-1786837178
+docker cp bs-ci-run-12345-1786837178:/repo/artifacts/local-ci/latest.json .
+docker run --rm -it --network none betting-standards-ci:bs-ci-12345-1786837178 sh
 ```
 
-Nothing is left behind unless you asked for it, and what is left is named so you can find it.
+The image tag is kept too, so the shell you open is the image the run actually executed rather than a
+rebuild that might differ. Clean-up commands are printed alongside. Nothing is left behind unless you
+asked for it, and what is left is named so you can find it.
 
 ## Verification evidence
 
@@ -185,6 +219,7 @@ alongside reviewed ones.
   "branch": "local-docker-ci",
   "result": "passed",
   "environment": "docker",
+  "imageId": "sha256:3ff50005ff14691f4478793fac5125bb4af555775c414d2b73a1d3cb70fd1589",
   "startedAt": "2026-08-15T23:39:12.004Z",
   "completedAt": "2026-08-15T23:39:59.675Z",
   "checks": [
@@ -262,6 +297,9 @@ Stated rather than implied away:
   Node on Windows, and Node's `--test` gained glob support in 22. Every environment in use — the
   container (Node 20, Linux), GitHub's runner (Node 20, Linux), and this workstation (Node 24) — is
   covered. Windows + Node 20 is not.
+- **The invariant is established per run, not across a fleet.** Concurrent runs on one machine are
+  covered (distinct images, demonstrated above). Two runs racing to `git push` the same branch are
+  resolved by git, not by this tooling.
 - **Local CI proves the pipeline passed on this machine.** It is not a claim that no one can push an
   unverified commit: `git push` still exists. The guarantee is that `submit-pr` will not do it, which
   is the same governance boundary Standard 21 R5 draws — bypass is visible, not impossible.
