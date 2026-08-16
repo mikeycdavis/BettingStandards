@@ -123,6 +123,45 @@ mechanism for ever becoming wrong out loud. The same reasoning retired this docu
 hosted Actions had never validated the repository — true when written, since falsified by hosted runs
 succeeding, and stated as history rather than as current fact.
 
+## The intermittent failure, diagnosed
+
+A single `Test`-stage failure appeared once in roughly ten gate runs and resisted reproduction. It was
+recorded as unexplained rather than dismissed, and it was found by the gate itself, on the run that
+submitted this work.
+
+`test/fidelity.test.mjs` planted fixture standards into the **real** `standards/` directory and
+removed each one in a `finally`. The tree therefore always ended clean, which is why it looked
+harmless. But `node --test` runs test files in parallel processes against one shared tree, and
+`test/baseline.test.mjs` walks `standards/` reading every entry. When the two interleaved, baseline
+listed a fixture and then failed to open it:
+
+```
+ENOENT: no such file or directory, open '/repo/standards/92-fidelity-backticks.md'
+```
+
+An unrelated test file, failing on a file it had itself just seen.
+
+**Reproduced, then measured.** Built at the pre-fix tree and run in the container: **2 of 20** and **2
+of 10** suite runs failed, every one of them with that same ENOENT. The fixed tree, same image
+recipe: **0 of 40**. On the Windows host (Node 24) the pre-fix tree failed **0 of 20** — the race is
+scheduling-dependent, and the environment that found it is the one the gate actually runs in. That is
+the second time the container caught something no amount of running commands by hand did.
+
+**This is the concurrency lesson
+above, one level down:** a fixed path shared between concurrent runs is a crossover, and "each test
+cleans up after itself" does not address it any more than "each run has its own container" addressed
+the image tag. Fixtures now go in a copy of the tree under `os.tmpdir()`; `fidelity.mjs` resolves its
+root from its own location, so a copy is a complete subject and **no production code was changed for
+testability**.
+
+The general rule — no test plants fixtures in the tree other tests are reading — is enforced where it
+is decidable: `fidelity.test.mjs` asserts its own fixture root lies outside the repository, which
+fails against the previous implementation. A source-scanning version covering all test files was
+written and **discarded**: run against the actual offender it passed, because the offender built its
+path into a variable before the write and the regex only saw inline calls. Deciding it needs dataflow
+a regex does not have, and a check that green-lights the defect it names is worse than an
+acknowledged gap.
+
 ## Alternatives considered
 
 **Keep the pipeline in the workflow and call it from Docker.** Rejected: parsing YAML to discover the

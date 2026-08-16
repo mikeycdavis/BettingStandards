@@ -7,26 +7,48 @@
  * what CI runs.
  *
  * The planted files use numbers outside the committed series (90+) so they cannot be confused with a
- * real standard, and every test removes its file in a `finally` so a failure cannot leave the working
- * tree dirty.
+ * real standard.
+ *
+ * THEY ARE PLANTED IN A COPY OF THE REPOSITORY, NEVER IN THE REPOSITORY. They used to be written
+ * into the real `standards/` directory and removed in a `finally`, which kept the tree clean but left
+ * the directory *mutable while other test files were reading it*. `node --test` runs test files in
+ * parallel processes, so `baseline.test.mjs` — which walks `standards/` and reads every entry —
+ * could list a fixture and then find it deleted, failing with ENOENT somewhere unrelated to what it
+ * was testing. That is the intermittent CI failure recorded in ADR 0007, and it is the same mistake
+ * as the shared image tag one level down: a fixed path shared between concurrent runs is a crossover,
+ * and "each test cleans up after itself" does not address it.
+ *
+ * `fidelity.mjs` resolves its own root from its own location, so a copy of the tree is a complete and
+ * independent subject. Nothing in the checker was changed to make it testable.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { writeFile, rm } from "node:fs/promises";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SCRIPT = path.join(ROOT, "scripts/fidelity.mjs");
 
-/** Run the checker. Never throws on a non-zero exit — the exit code is the thing under test. */
-async function fidelity() {
+/** A private copy of the tree, planted into and discarded. Skips history and transient output: the
+ *  checker reads neither, and copying `.git` would dominate the cost of an otherwise 1 MB tree. */
+const WORK = mkdtempSync(path.join(os.tmpdir(), "bs-fidelity-"));
+cpSync(ROOT, WORK, {
+  recursive: true,
+  filter: (src) => !/[\\/](\.git|node_modules)$/.test(src)
+    && !/[\\/]artifacts[\\/]local-ci$/.test(src),
+});
+process.on("exit", () => rmSync(WORK, { recursive: true, force: true }));
+
+/** Run the checker against a tree. Never throws on a non-zero exit — the exit code is under test. */
+async function fidelity(root = WORK) {
   try {
-    const { stdout } = await run(process.execPath, [SCRIPT, "--json"], { cwd: ROOT });
+    const { stdout } = await run(process.execPath, [path.join(root, "scripts/fidelity.mjs"), "--json"], { cwd: root });
     return { code: 0, report: JSON.parse(stdout) };
   } catch (error) {
     return { code: error.code, report: JSON.parse(error.stdout) };
@@ -34,7 +56,7 @@ async function fidelity() {
 }
 
 async function withStandard(name, body, fn) {
-  const file = path.join(ROOT, "standards", name);
+  const file = path.join(WORK, "standards", name);
   await writeFile(file, body, "utf8");
   try {
     return await fn();
@@ -44,9 +66,21 @@ async function withStandard(name, body, fn) {
 }
 
 test("the repository as committed has no unverified claims", async () => {
-  const { code, report } = await fidelity();
+  // The one test that must read the REAL tree — a copy would only prove the copy is sound. It is
+  // read-only, so it races with nothing.
+  const { code, report } = await fidelity(ROOT);
   assert.equal(code, 0, `fidelity failed on the committed tree: ${JSON.stringify(report, null, 2)}`);
   assert.equal(report.ok, true);
+});
+
+test("fixtures are planted outside the repository", () => {
+  // The falsifier for the race described in this file's header. Against the previous implementation
+  // WORK was ROOT and this fails outright.
+  assert.notEqual(path.resolve(WORK), path.resolve(ROOT));
+  assert.ok(
+    !path.resolve(WORK).startsWith(path.resolve(ROOT) + path.sep),
+    "fixtures are planted inside the repository, where a concurrent test file can observe them half-existing"
+  );
 });
 
 test("a true verbatim claim passes", async () => {

@@ -167,6 +167,15 @@ describe("ci/pipeline.json is the single definition of the pipeline", () => {
     }
   });
 
+  // NOT ASSERTED HERE: "no test file plants fixtures in the real tree." That rule is real — see
+  // test/fidelity.test.mjs, where breaking it produced an intermittent ENOENT in an unrelated test
+  // file — but a source-scanning version of it was written, run against the offending code, and
+  // PASSED: the offender built its path into a variable first, and the regex only saw inline calls.
+  // Deciding it by regex needs dataflow the regex does not have. It is enforced where it is
+  // decidable, by that file asserting its own fixture root is outside the repository, and stated as
+  // a convention in docs/local-ci.md. A check that green-lights the defect it names is worse than
+  // an acknowledged gap.
+
   test("transient verification output is not committable", () => {
     const ignore = readFileSync(path.join(ROOT, ".gitignore"), "utf8");
     assert.match(ignore, /^artifacts\/local-ci\/?$/m, "artifacts/local-ci is not gitignored");

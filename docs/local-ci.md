@@ -307,6 +307,13 @@ Stated rather than implied away:
 - **The invariant is established per run, not across a fleet.** Concurrent runs on one machine are
   covered (distinct images, demonstrated above). Two runs racing to `git push` the same branch are
   resolved by git, not by this tooling.
+- **No test may plant fixtures in the tree other tests are reading.** `node --test` runs test files in
+  parallel processes against one shared tree; a fixture written into `standards/` and cleaned up
+  afterwards still makes an unrelated test file fail with `ENOENT` on a file it just listed. That was
+  the cause of this pipeline's one intermittent failure (ADR 0007). Fixtures belong in a copy under
+  `os.tmpdir()`. `test/fidelity.test.mjs` asserts its own fixture root is outside the repository; the
+  rule is **not** mechanically enforced across all test files, because the source-scan version of it
+  passed against the real offender and was discarded rather than kept as decoration.
 - **Local CI proves the pipeline passed on this machine.** It is not a claim that no one can push an
   unverified commit: `git push` still exists. The guarantee is that `submit-pr` will not do it, which
   is the same governance boundary Standard 21 R5 draws — bypass is visible, not impossible.
