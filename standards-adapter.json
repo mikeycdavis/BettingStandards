@@ -1,0 +1,28 @@
+{
+  "$schema": "https://standards-enforcer/schemas/standards-adapter.schema.json",
+  "schemaVersion": "1.0.0",
+  "standard": {
+    "id": "betting"
+  },
+  "evaluation": {
+    "entrypoint": "scripts/standards.mjs",
+    "arguments": [
+      "validate",
+      "{target}",
+      "--json"
+    ]
+  },
+  "result": {
+    "statuses": [
+      "COMPLIANT",
+      "COMPLIANT_WITH_EXCEPTIONS",
+      "NON_COMPLIANT",
+      "NOT_EVALUATED",
+      "BLOCKED_BY_INVARIANT"
+    ],
+    "passing": [
+      "COMPLIANT",
+      "COMPLIANT_WITH_EXCEPTIONS"
+    ]
+  }
+}

@@ -1,13 +1,13 @@
 {
   "name": "betting-standards",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Numbered betting and gambling decision standards, and the tooling that checks a wagering process against them.",
   "type": "module",
   "bin": {
     "standards": "scripts/standards.mjs"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node --test test/*.test.mjs",
     "init": "node scripts/standards.mjs init",
     "plan": "node scripts/standards.mjs plan .",
     "check": "node scripts/standards.mjs check",

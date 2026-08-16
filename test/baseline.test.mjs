@@ -34,9 +34,15 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const catalog = await loadCatalog();
 const rules = [...catalog.rules.values()];
 
-/** The published v1.0.0 shape. */
+/**
+ * The published shape.
+ *
+ * `version` moved to 1.0.1 for the adapter-contract release, and it is the ONLY field that moved.
+ * Every other number below is the one v1.0.0 shipped with, still passing — which is what makes
+ * "interoperability metadata, no normative change" a proof rather than a label.
+ */
 const BASELINE = {
-  version: "1.0.0",
+  version: "1.0.1",
   standards: 21,
   rules: 51,
   required: 25,

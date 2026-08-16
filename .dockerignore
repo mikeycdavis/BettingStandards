@@ -1,0 +1,26 @@
+# Keep the CI image a tree, not a history.
+#
+# .git is excluded so nothing inside the container can read or write repository history, and so the
+# image content is exactly the files under test. scripts/ci-stages.mjs takes the commit SHA from the
+# CI_COMMIT_SHA environment variable instead, which the host script sets from the SHA it verified.
+.git
+
+# .gitignore is deliberately NOT excluded: test/local-ci.test.mjs asserts that artifacts/local-ci is
+# unignorable-by-accident, and a check that cannot see the file it checks would skip silently.
+
+# Transient verification output. Written inside the container and copied out with `docker cp` by
+# scripts/ci.*; baking a previous run's result into the image would let a stale pass be reported as
+# current.
+artifacts/local-ci
+
+# Never present in this repository (zero dependencies), listed so a reused copy of this file does not
+# silently ship a host-built node_modules into the image.
+node_modules
+
+*.log
+.DS_Store
+
+# Dockerfile.ci and compose.ci.yml are deliberately NOT excluded. test/local-ci.test.mjs asserts
+# properties OF the CI environment — that the image tag is per-run and cannot be retagged by a
+# concurrent run, that no host path is mounted — and a check that cannot see the file it checks
+# passes silently, which is the failure mode this repository exists to refuse.

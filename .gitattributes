@@ -1,0 +1,13 @@
+# Shell scripts MUST check out with LF endings.
+#
+# This repository is developed on Windows, where git's autocrlf converts on checkout. A CRLF `#!` line
+# makes the Linux CI container fail with a bare `bad interpreter` — a failure that appears only on a
+# fresh clone, never on the machine that wrote the file, and that looks like a Docker problem rather
+# than a line-ending one. Pinning it here means the local CI gate cannot be broken by a clone.
+*.sh text eol=lf
+
+# Same reasoning: these are read inside the container, and one of them is the container's own recipe.
+Dockerfile.ci   text eol=lf
+*.yml           text eol=lf
+*.json          text eol=lf
+*.mjs           text eol=lf
