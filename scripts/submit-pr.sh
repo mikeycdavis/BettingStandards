@@ -205,6 +205,30 @@ if ! gh auth status >/dev/null 2>&1; then
   exit 2
 fi
 
+# An open PR for this branch already exists. The push above already moved its head, so the evidence
+# block in its body now describes a DIFFERENT commit than the one under review — a stale "Result:
+# PASS" against a superseded SHA is exactly the false claim this whole workflow exists to prevent.
+# Refresh it, preserving whatever the author wrote above the block.
+EXISTING=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+
+if [ -n "$EXISTING" ]; then
+  CURRENT_BODY=$(gh pr view "$EXISTING" --json body --jq .body 2>/dev/null || printf '')
+  # Everything above the evidence heading is the author's; trailing blank lines and the `---` rule
+  # that introduces the block are dropped so repeated runs cannot accumulate separators.
+  AUTHOR_PART=$(printf '%s\n' "$CURRENT_BODY" \
+    | awk '/^## Local CI$/{exit} {print}' \
+    | awk '{a[NR]=$0} END{n=NR; while(n>0 && (a[n]=="" || a[n]=="---")) n--; for(i=1;i<=n;i++) print a[i]}')
+
+  if [ -n "$BODY" ]; then AUTHOR_PART="$BODY"; fi
+
+  echo "submit-pr: PR #$EXISTING is already open for '$BRANCH'; its head is now the verified commit."
+  echo "submit-pr: refreshing the Local CI evidence block so it names $SHA_BEFORE"
+  gh pr edit "$EXISTING" --body "$AUTHOR_PART
+$EVIDENCE"
+  gh pr view "$EXISTING" --json url --jq .url
+  exit 0
+fi
+
 set -- --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "$PR_BODY"
 [ "$DRAFT" -eq 1 ] && set -- "$@" --draft
 

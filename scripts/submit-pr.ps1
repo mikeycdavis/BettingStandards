@@ -191,6 +191,35 @@ if ($LASTEXITCODE -ne 0) {
     Stop-With "submit-pr: verified commit pushed, but gh is not authenticated, so no PR was created.`n           Run 'gh auth login' and retry, or open the PR manually against base '$Base'." 2
 }
 
+# An open PR for this branch already exists. The push above already moved its head, so the evidence
+# block in its body now describes a DIFFERENT commit than the one under review -- a stale
+# "Result: PASS" against a superseded SHA is exactly the false claim this workflow exists to prevent.
+# Refresh it, preserving whatever the author wrote above the block.
+$Existing = (& gh pr list --head $Branch --state open --json number --jq '.[0].number // empty' 2>$null)
+if ($LASTEXITCODE -ne 0) { $Existing = '' }
+
+if (-not [string]::IsNullOrWhiteSpace($Existing)) {
+    $Existing = $Existing.Trim()
+    $CurrentBody = (& gh pr view $Existing --json body --jq .body 2>$null) -join "`n"
+
+    if ([string]::IsNullOrWhiteSpace($PSBoundParameters['Body'])) {
+        # Everything above the evidence heading is the author's. Trailing blank lines and the `---`
+        # rule that introduces the block are trimmed so repeated runs cannot accumulate separators.
+        $AuthorPart = ($CurrentBody -split '(?m)^## Local CI\s*$')[0]
+        $AuthorPart = $AuthorPart -replace '(?s)(\r?\n)+(-{3,}\s*)?\s*$', ''
+    } else {
+        $AuthorPart = $Body
+    }
+
+    Write-Host "submit-pr: PR #$Existing is already open for '$Branch'; its head is now the verified commit."
+    Write-Host "submit-pr: refreshing the Local CI evidence block so it names $ShaBefore"
+    & gh pr edit $Existing --body "$AuthorPart`n$Evidence"
+    $PrStatus = $LASTEXITCODE
+    if ($PrStatus -eq 0) { & gh pr view $Existing --json url --jq .url }
+    Pop-Location
+    exit $PrStatus
+}
+
 $GhArgs = @('pr', 'create', '--base', $Base, '--head', $Branch, '--title', $Title, '--body', $PrBody)
 if ($Draft) { $GhArgs += '--draft' }
 
