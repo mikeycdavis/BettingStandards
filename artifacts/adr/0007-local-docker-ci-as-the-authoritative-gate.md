@@ -7,10 +7,12 @@
 The repository's checks lived as eight inline `run:` steps in `.github/workflows/ci.yml`. That
 arrangement had two problems, one discovered and one structural.
 
-**The discovered problem: hosted CI has never validated this repository.** GitHub Actions has run
-exactly once, on 2026-08-09, and it failed after four seconds with no steps recorded — the signature
-of an account-level constraint, not a code failure. Every green claim this repository has made about
-itself was made by a developer running commands by hand. That is not a gate.
+**The discovered problem: hosted CI had never validated this repository.** At the time of this
+decision, GitHub Actions had run exactly once, on 2026-08-09, failing after four seconds with no steps
+recorded — the signature of an account-level constraint, not a code failure. Every green claim this
+repository had made about itself was made by a developer running commands by hand. That is not a gate.
+(Hosted runs have since succeeded on this branch. That retires the fact, not the decision: see the
+structural problem below, which no amount of hosted reliability addresses.)
 
 **The structural problem: a workflow file is not runnable before a push.** Verifying a branch meant
 pushing it and waiting, which inverts the order that matters — the proof arrives after the thing it
@@ -107,6 +109,19 @@ each run reporting its own tree.
 **The general lesson:** isolation is only isolation of the things actually namespaced. Every shared
 mutable name between concurrent runs — a tag, a fixed path, a well-known port, a database name — is a
 candidate crossover, and "the containers are separate" does not cover any of them.
+
+**A second-order defect the fix created, and the rule taken from it.** The PR evidence block named the
+image as a literal string, `betting-standards-ci:local`. Making the tag per-run left that line
+untouched, so the artefact whose entire purpose is describing what was verified went on asserting an
+image that no longer existed — in a pull request about trustworthy evidence. The evidence now reads
+the image **ID** out of that run's own `latest.json`, and `test/local-ci.test.mjs` fails if either
+`submit-pr` script writes a literal image name.
+
+The rule is narrower than "keep documentation current": **an evidence field must be read from the run
+it describes, never typed in.** A hand-written value is correct on the day it is written and has no
+mechanism for ever becoming wrong out loud. The same reasoning retired this document's claim that
+hosted Actions had never validated the repository — true when written, since falsified by hosted runs
+succeeding, and stated as history rather than as current fact.
 
 ## Alternatives considered
 

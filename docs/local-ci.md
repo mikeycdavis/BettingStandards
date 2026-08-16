@@ -249,17 +249,24 @@ The workflow no longer lists the stages inline; it invokes the same runner over 
 Adding a check to `ci/pipeline.json` adds it to both, and `test/local-ci.test.mjs` fails if the
 workflow stops calling the runner or if an `npm ci` appears in it (ADR 0006).
 
-**The local run is authoritative for this repository.** As of this writing, GitHub-hosted Actions on
-this account have run exactly once — and failed in four seconds without executing a single step. The
-PR evidence block therefore says what was verified and where, and makes no claim about hosted runs:
+**The local run is authoritative for this repository.** The reason is historical and specific: when
+this pipeline was written, GitHub-hosted Actions on this account had run exactly once, failing in four
+seconds without executing a single step. Hosted runs have since succeeded, which changes the fact but
+not the design — a gate that only reports after the push cannot gate the push. The PR evidence block
+therefore says what was verified and where, and makes no claim about hosted runs:
 
 ```
 ## Local CI
 
 Verified commit: <full SHA>
 Result: PASS
-Environment: Docker (compose.ci.yml, image betting-standards-ci:local, no network)
+Environment: Docker (compose.ci.yml, image sha256:<id>, no network)
 ```
+
+The image is named by **ID, read out of that run's own `latest.json`** — not by tag. The tag is unique
+per run and deleted at teardown, so a tag in the evidence would name something that no longer exists;
+a *fixed* tag would be worse, since it stays plausible while silently ceasing to be true.
+`test/local-ci.test.mjs` fails if either `submit-pr` script writes a literal image name.
 
 ### Self-hosted runners
 

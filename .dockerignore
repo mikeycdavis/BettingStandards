@@ -8,8 +8,9 @@
 # .gitignore is deliberately NOT excluded: test/local-ci.test.mjs asserts that artifacts/local-ci is
 # unignorable-by-accident, and a check that cannot see the file it checks would skip silently.
 
-# Transient verification output. Bind-mounted in at run time by scripts/ci.* so results reach the
-# host; baking a previous run's result into the image would let a stale pass be reported as current.
+# Transient verification output. Written inside the container and copied out with `docker cp` by
+# scripts/ci.*; baking a previous run's result into the image would let a stale pass be reported as
+# current.
 artifacts/local-ci
 
 # Never present in this repository (zero dependencies), listed so a reused copy of this file does not

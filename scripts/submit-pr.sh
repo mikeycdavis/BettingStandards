@@ -175,6 +175,16 @@ fi
 # ── 8. Open the PR ────────────────────────────────────────────────────────────────────────────────
 [ -z "$TITLE" ] && TITLE=$(git log -1 --pretty=%s "$SHA_BEFORE")
 
+# The image is named by its ID, read from the run that just passed, because the tag is ephemeral: it
+# is unique per run and deleted at teardown, so quoting a tag here would describe something that no
+# longer exists. Naming a fixed tag would be worse still — evidence that stays constant while the
+# thing it describes changes is exactly the false green this repository refuses.
+IMAGE_LINE='Environment: Docker (`compose.ci.yml`, ephemeral per-run image, no network)'
+if [ -f artifacts/local-ci/latest.json ] && command -v node >/dev/null 2>&1; then
+  IMAGE_ID=$(node -e 'try{const j=require("fs").readFileSync("artifacts/local-ci/latest.json","utf8");process.stdout.write(JSON.parse(j).imageId||"")}catch(e){}' 2>/dev/null || echo "")
+  [ -n "$IMAGE_ID" ] && IMAGE_LINE="Environment: Docker (\`compose.ci.yml\`, image \`$IMAGE_ID\`, no network)"
+fi
+
 EVIDENCE=$(printf '%s\n' \
   "" \
   "---" \
@@ -183,7 +193,7 @@ EVIDENCE=$(printf '%s\n' \
   "" \
   "Verified commit: \`$SHA_BEFORE\`" \
   "Result: **PASS**" \
-  "Environment: Docker (\`compose.ci.yml\`, image \`betting-standards-ci:local\`, no network)" \
+  "$IMAGE_LINE" \
   "Pipeline: \`ci/pipeline.json\` via \`scripts/ci-stages.mjs\`" \
   "" \
   "This pull request was verified by the repository's **local** containerized CI pipeline before the" \

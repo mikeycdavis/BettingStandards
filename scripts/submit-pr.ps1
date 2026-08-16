@@ -167,6 +167,21 @@ if ($LASTEXITCODE -ne 0) { Stop-With "submit-pr: push failed. No PR was created.
 # ── 8. Open the PR ────────────────────────────────────────────────────────────────────────────────
 if ([string]::IsNullOrWhiteSpace($Title)) { $Title = (& git log -1 --pretty=%s $ShaBefore).Trim() }
 
+# The image is named by its ID, read from the run that just passed, because the tag is ephemeral: it
+# is unique per run and deleted at teardown, so quoting a tag here would describe something that no
+# longer exists. Naming a fixed tag would be worse still -- evidence that stays constant while the
+# thing it describes changes is exactly the false green this repository refuses.
+$ImageLine = 'Environment: Docker (`compose.ci.yml`, ephemeral per-run image, no network)'
+$EvidencePath = Join-Path $RepoRoot 'artifacts/local-ci/latest.json'
+if (Test-Path $EvidencePath) {
+    try {
+        $ImageId = (Get-Content -Raw $EvidencePath | ConvertFrom-Json).imageId
+        if (-not [string]::IsNullOrWhiteSpace($ImageId)) {
+            $ImageLine = "Environment: Docker (``compose.ci.yml``, image ``$ImageId``, no network)"
+        }
+    } catch { }
+}
+
 $Evidence = @"
 
 ---
@@ -175,7 +190,7 @@ $Evidence = @"
 
 Verified commit: ``$ShaBefore``
 Result: **PASS**
-Environment: Docker (``compose.ci.yml``, image ``betting-standards-ci:local``, no network)
+$ImageLine
 Pipeline: ``ci/pipeline.json`` via ``scripts/ci-stages.mjs``
 
 This pull request was verified by the repository's **local** containerized CI pipeline before the

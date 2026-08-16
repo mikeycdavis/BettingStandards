@@ -141,6 +141,32 @@ describe("ci/pipeline.json is the single definition of the pipeline", () => {
     }
   });
 
+  test("PR evidence never hardcodes an image name", () => {
+    // The evidence block once read `image: betting-standards-ci:local` as a literal. That was true
+    // when written and became false when the tag went per-run — the line kept asserting it anyway,
+    // which is the failure mode this whole PR exists to prevent, committed into the artefact whose
+    // job is to describe what was verified. Evidence must be read from the run, never typed in.
+    for (const name of ["scripts/submit-pr.sh", "scripts/submit-pr.ps1"]) {
+      const source = readFileSync(path.join(ROOT, name), "utf8");
+      const evidence = source
+        .split("\n")
+        .filter((line) => !/^\s*(#|\/\/)/.test(line));
+
+      for (const line of evidence) {
+        assert.doesNotMatch(
+          line,
+          /betting-standards-ci:[A-Za-z0-9._-]+/,
+          `${name} names a literal image tag in the evidence it publishes; read imageId from the run instead`
+        );
+      }
+      assert.match(
+        source,
+        /latest\.json/,
+        `${name} does not read the run's own result, so its environment line cannot be evidence`
+      );
+    }
+  });
+
   test("transient verification output is not committable", () => {
     const ignore = readFileSync(path.join(ROOT, ".gitignore"), "utf8");
     assert.match(ignore, /^artifacts\/local-ci\/?$/m, "artifacts/local-ci is not gitignored");
