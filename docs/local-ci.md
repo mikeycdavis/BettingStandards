@@ -212,6 +212,11 @@ pass claim is not the kind of evidence this repository retains. Decision records
 are reviewed artifacts; this is transient output, and committing it would put an unreviewed assertion
 alongside reviewed ones.
 
+**The previous run's file is deleted before a new run starts**, not overwritten when it finishes. If a
+run dies before the container writes a result — a failed image build, an unreachable daemon — the path
+advertised as "the latest result" is then empty. Absence reads as *no result*; a leftover document
+reads as a pass, and would attribute an earlier run's success to a run that failed.
+
 ```json
 {
   "repository": "betting-standards",

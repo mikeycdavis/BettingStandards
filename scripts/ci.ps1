@@ -82,6 +82,11 @@ try {
     if ($LASTEXITCODE -ne 0) { $env:CI_COMMIT_SHA = ''; $env:CI_BRANCH = '' }
 
     New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot 'artifacts/local-ci') | Out-Null
+    # Delete the previous run's result BEFORE this one starts. If the build fails, or the container
+    # never gets far enough to write one, the path advertised as "the latest result" must be empty
+    # rather than still holding an earlier PASS. Absence is readable as "no result"; a stale pass is
+    # not readable as anything but a pass.
+    Get-Item -ErrorAction Ignore (Join-Path $RepoRoot 'artifacts/local-ci/latest.json') | Remove-Item -Force -Confirm:$false
 
     Write-Host "ci: project $Project"
     Write-Host "ci: building image (betting-standards-ci:$($env:CI_IMAGE_TAG))"

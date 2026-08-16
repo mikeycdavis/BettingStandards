@@ -63,6 +63,11 @@ CI_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 export CI_COMMIT_SHA CI_BRANCH
 
 mkdir -p artifacts/local-ci
+# Delete the previous run's result BEFORE this one starts. If the build fails, or the container never
+# gets far enough to write one, the path advertised as "the latest result" must be empty rather than
+# still holding an earlier PASS. Absence is readable as "no result"; a stale pass is not readable as
+# anything but a pass.
+rm -f artifacts/local-ci/latest.json
 
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true

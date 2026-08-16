@@ -228,10 +228,32 @@ fi
 # block in its body now describes a DIFFERENT commit than the one under review — a stale "Result:
 # PASS" against a superseded SHA is exactly the false claim this whole workflow exists to prevent.
 # Refresh it, preserving whatever the author wrote above the block.
-EXISTING=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true)
+#
+# --base is passed because the same head can have open PRs against several bases. Without it the
+# lookup returns whichever comes first, and this would refresh a PR the caller did not ask about
+# while never creating the one they did.
+#
+# The lookup's FAILURE is not treated as "no existing PR". A transient `gh` error would then fall
+# through to `gh pr create`, which fails against an existing PR — leaving the branch pointing at the
+# new commit while its body still advertises PASS for the old one. That is the precise stale claim
+# this refresh exists to prevent, so an unreadable answer stops here instead.
+if ! EXISTING=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // empty' 2>/dev/null); then
+  echo "" >&2
+  echo "submit-pr: verified commit pushed, but the existing-PR lookup failed, so nothing was edited." >&2
+  echo "           Re-run once 'gh pr list' works; the push is idempotent." >&2
+  exit 2
+fi
 
 if [ -n "$EXISTING" ]; then
-  CURRENT_BODY=$(gh pr view "$EXISTING" --json body --jq .body 2>/dev/null || printf '')
+  # Read the body, and stop if it cannot be read. Treating an unreadable body as empty and carrying
+  # on to `gh pr edit` would erase everything the author wrote the moment the API recovered.
+  if ! CURRENT_BODY=$(gh pr view "$EXISTING" --json body --jq .body 2>/dev/null); then
+    echo "" >&2
+    echo "submit-pr: verified commit pushed, but PR #$EXISTING's body could not be read, so it was" >&2
+    echo "           left untouched rather than overwritten. Note its evidence block still names an" >&2
+    echo "           earlier commit; re-run to refresh it." >&2
+    exit 2
+  fi
   # Everything above the evidence heading is the author's; trailing blank lines and the `---` rule
   # that introduces the block are dropped so repeated runs cannot accumulate separators.
   AUTHOR_PART=$(printf '%s\n' "$CURRENT_BODY" \

@@ -167,6 +167,42 @@ describe("ci/pipeline.json is the single definition of the pipeline", () => {
     }
   });
 
+  test("a failed run cannot leave the previous run's PASS at the evidence path", () => {
+    // artifacts/local-ci/latest.json is advertised as "the latest result". If a run dies before the
+    // container writes one — a failed image build, an unreachable daemon — whatever is there is the
+    // PREVIOUS run's document, and it says PASS. Absence reads as "no result"; a stale pass reads as
+    // a pass. Each wrapper therefore deletes it before starting, not after finishing.
+    for (const [name, source] of wrappers) {
+      const lines = source.split("\n");
+      const removed = lines.findIndex((l) => /latest\.json/.test(l) && /\brm\b|Remove-Item/.test(l));
+      const ran = lines.findIndex((l) => /compose.*\bbuild\b/.test(l));
+      assert.notEqual(removed, -1, `${name} never clears the previous run's result`);
+      assert.ok(ran !== -1 && removed < ran,
+        `${name} clears the previous result after the build, so a build failure still leaves a stale PASS`);
+    }
+  });
+
+  test("submit-pr treats an unreadable GitHub answer as a fault, not as an absence", () => {
+    // Two collapses, both of which end with the PR page making a claim about the wrong commit:
+    //   `gh pr list` fails  → read as "no PR exists" → falls through to create → existing PR keeps
+    //                          its old evidence while its head has already moved.
+    //   `gh pr view` fails  → read as "empty body"   → the edit erases everything the author wrote.
+    // And the lookup is filtered by base, since one head can have open PRs against several.
+    for (const name of ["scripts/submit-pr.sh", "scripts/submit-pr.ps1"]) {
+      const source = readFileSync(path.join(ROOT, name), "utf8");
+
+      const listLine = source.split("\n").find((l) => /gh pr list/.test(l));
+      assert.ok(listLine, `${name} has no 'gh pr list' lookup`);
+      assert.match(listLine, /--base/, `${name} does not filter the existing-PR lookup by base`);
+      assert.doesNotMatch(listLine, /\|\|\s*true/, `${name} swallows a failed lookup as 'no existing PR'`);
+
+      const viewLine = source.split("\n").find((l) => /gh pr view .*--json body/.test(l));
+      assert.ok(viewLine, `${name} has no PR body read`);
+      assert.doesNotMatch(viewLine, /\|\|\s*printf|\|\|\s*''/,
+        `${name} defaults an unreadable body to empty, which erases the author's text on the next edit`);
+    }
+  });
+
   // NOT ASSERTED HERE: "no test file plants fixtures in the real tree." That rule is real — see
   // test/fidelity.test.mjs, where breaking it produced an intermittent ENOENT in an unrelated test
   // file — but a source-scanning version of it was written, run against the offending code, and

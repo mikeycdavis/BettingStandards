@@ -218,12 +218,30 @@ if ($LASTEXITCODE -ne 0) {
 # block in its body now describes a DIFFERENT commit than the one under review -- a stale
 # "Result: PASS" against a superseded SHA is exactly the false claim this workflow exists to prevent.
 # Refresh it, preserving whatever the author wrote above the block.
-$Existing = (& gh pr list --head $Branch --state open --json number --jq '.[0].number // empty' 2>$null)
-if ($LASTEXITCODE -ne 0) { $Existing = '' }
+#
+# --base is passed because the same head can have open PRs against several bases. Without it the
+# lookup returns whichever comes first, and this would refresh a PR the caller did not ask about
+# while never creating the one they did.
+#
+# The lookup's FAILURE is not treated as "no existing PR". A transient `gh` error would then fall
+# through to `gh pr create`, which fails against an existing PR -- leaving the branch pointing at the
+# new commit while its body still advertises PASS for the old one. That is the precise stale claim
+# this refresh exists to prevent, so an unreadable answer stops here instead.
+$Existing = (& gh pr list --head $Branch --base $Base --state open --json number --jq '.[0].number // empty' 2>$null)
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Stop-With "submit-pr: verified commit pushed, but the existing-PR lookup failed, so nothing was edited.`n           Re-run once 'gh pr list' works; the push is idempotent." 2
+}
 
 if (-not [string]::IsNullOrWhiteSpace($Existing)) {
     $Existing = $Existing.Trim()
+    # Read the body, and stop if it cannot be read. Treating an unreadable body as empty and carrying
+    # on to `gh pr edit` would erase everything the author wrote the moment the API recovered.
     $CurrentBody = (& gh pr view $Existing --json body --jq .body 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Stop-With "submit-pr: verified commit pushed, but PR #$Existing's body could not be read, so it was`n           left untouched rather than overwritten. Note its evidence block still names an`n           earlier commit; re-run to refresh it." 2
+    }
 
     if ([string]::IsNullOrWhiteSpace($PSBoundParameters['Body'])) {
         # Everything above the evidence heading is the author's. Trailing blank lines and the `---`
