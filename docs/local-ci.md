@@ -129,8 +129,10 @@ Two things follow, both stronger than the usual arrangement:
 - **The pipeline runs with `network_mode: none`.** The architectural claim of no network I/O is
   enforced, not asserted. A check that quietly started reaching the internet fails here instead of
   passing on a machine that happened to be online.
-- **One host path is mounted:** `./artifacts/local-ci`, write-only output for the run result. No
-  source mount, no SSH agent, no Docker socket, no credential helper, no home directory.
+- **One host path is mounted:** `./artifacts/local-ci`, used only for output — the run result. It is
+  a plain read-write bind mount; Docker enforces no direction on it, and the guarantee here is its
+  *narrowness*, not its permissions. No source mount, no SSH agent, no Docker socket, no credential
+  helper, no home directory.
 
 **Nothing on your machine is touched.** Every compose resource is namespaced under a project name
 unique to the run (`bs-ci-<pid>-<epoch>`), so teardown is exhaustive within the run and cannot reach

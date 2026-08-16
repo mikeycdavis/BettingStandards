@@ -30,7 +30,10 @@ services:
       CI_COMMIT_SHA: "${CI_COMMIT_SHA:-}"
       CI_BRANCH: "${CI_BRANCH:-}"
     volumes:
-      # The ONLY host path mounted, and it is write-only output: the machine-readable run result.
+      # The ONLY host path mounted. The pipeline uses it solely to write the machine-readable run
+      # result — but note this is a plain read-write bind mount: Docker is not enforcing that, and
+      # nothing here makes it write-only. The narrowness is the guarantee (one gitignored directory),
+      # not the direction of access.
       # Nothing else about the host is visible to the container — no source mount, no SSH agent, no
       # Docker socket, no credential helper. See docs/local-ci.md § Security.
       - ./artifacts/local-ci:/repo/artifacts/local-ci

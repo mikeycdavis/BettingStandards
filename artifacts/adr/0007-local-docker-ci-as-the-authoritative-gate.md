@@ -35,6 +35,29 @@ image copies the tree rather than mounting it (so CI cannot move `HEAD`), the SH
 CI and any difference aborts, and the push names the verified SHA explicitly rather than pushing a
 branch ref.
 
+## Admissibility under the v1.0 release boundary
+
+`v1.0.0` was a release boundary: changes to the published contract require new evidence, not a green
+build. This work does not change that contract, and the claim is mechanical rather than asserted.
+
+Nothing under `standards/`, `rules/`, `schemas/`, `examples/`, `project-policy.yml`,
+`betting-policy.yml`, `standards-adapter.json`, `VERSION`, or the evaluator modules is touched.
+`test/baseline.test.mjs` is **unmodified and passing** — 21 standards, 51 rules at 25/3/23, 23
+non-exemptible prohibitions, 41 evaluated, 13 fully machine-represented, `COMPLIANT` at 94. The one
+`package.json` edit is to the `test` *script*, which is invocation and not part of the declared
+adapter contract; `test/adapter-contract.test.mjs` passes, including its README-derived oracle.
+
+**No version is issued**, which follows the precedent set at `56247eb`: *"an improved test is not by
+itself grounds for a version."* Build and verification infrastructure is the same category.
+
+The narrower point worth recording, because it is the one easy to get wrong: `v1.0.1` did **not**
+reopen this repository for general development. It was a scoped, evidence-backed, non-normative
+release — an orchestrator could not tell `validate` from `check`, both of which run cleanly and return
+verdict-shaped objects, so the pack published which command carries its verdict. What `v1.0.1` and
+`56247eb` establish is a *precedent* for non-normative change with recorded justification, not a
+standing licence. This work is admissible because it falls in that category and was directed by the
+owner — not because the boundary lapsed.
+
 ## Consequences
 
 **Two production changes were required, both recorded rather than absorbed.**
