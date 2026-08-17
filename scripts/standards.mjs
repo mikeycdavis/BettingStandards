@@ -280,10 +280,27 @@ async function gatherEvidence(plan) {
   let recordsChecked = 0;
   let ledgerPresent = false;
 
-  const result = await checkDecisions({ dir: plan.ledgerDir });
-  findings.push(...result.findings);
-  recordsChecked = result.records;
-  ledgerPresent = result.ledgerPresent;
+  // The policy whose presence establishes adoption is the policy the records are judged against.
+  //
+  // This call used to omit `policyPath`, and `checkDecisions` defaulted it to THIS pack's
+  // betting-policy.yml. `validate <target>` therefore read the target's project-policy.yml and the
+  // target's betting-policy.yml — and then evaluated the target's decisions against our numbers.
+  // Measured: a target declaring minEdge 0.90, whose records carry an adjusted edge of 0.04, returned
+  // COMPLIANT with denominator.scored 25. Nothing errored, and the verdict was shaped exactly like a
+  // correct one. See test/target-policy.test.mjs and ADR 0008.
+  //
+  // With no policy in the target there is nothing to judge the records against, and this pack's file
+  // is not a substitute. The records are left unevaluated — the trimming below reports them as such,
+  // and policyFindings already fails the four rules that require the policy to exist. An adopting
+  // project learns that its thresholds are undeclared, rather than being told it passed ours.
+  if (plan.hasBettingPolicy) {
+    const result = await checkDecisions({ dir: plan.ledgerDir, policyPath: plan.bettingPath });
+    findings.push(...result.findings);
+    recordsChecked = result.records;
+    ledgerPresent = result.ledgerPresent;
+  } else {
+    ledgerPresent = await exists(plan.ledgerDir);
+  }
 
   findings.push(...(await policyFindings(plan)));
   findings.push(...(await documentFindings(plan)));
@@ -602,7 +619,19 @@ async function main() {
       case "check": {
         const { checkDecisions: check, render } = await import("./decisions.mjs");
         const ledger = (await exists(path.join(dir, "ledger"))) ? path.join(dir, "ledger") : path.join(dir, "examples/ledger");
-        const result = await check({ dir: ledger });
+        // The target's own thresholds, named explicitly. Omitting this let `checkDecisions` fall back
+        // to THIS pack's betting-policy.yml, so `check <someone else's repo>` re-derived their numbers
+        // correctly and then judged their decisions against ours.
+        const policyPath = path.join(dir, "betting-policy.yml");
+        if (!(await exists(policyPath))) {
+          process.stderr.write(
+            `standards check: no betting-policy.yml in ${dir}\n` +
+              "The recorded decisions cannot be re-evaluated against thresholds that are not declared,\n" +
+              "and they will not be evaluated against this pack's. Run `standards init` first.\n",
+          );
+          process.exit(EXIT_INVOCATION);
+        }
+        const result = await check({ dir: ledger, policyPath });
         process.stdout.write(options.json ? JSON.stringify(result, null, 2) + "\n" : render(result, options));
         process.exit(result.findings.some((f) => f.severity === "error") ? EXIT_VERDICT : EXIT_OK);
         break;
