@@ -114,6 +114,37 @@ function comparable(report) {
   };
 }
 
+/**
+ * Thresholds proven to change this ledger's verdict when they move, measured by perturbing the
+ * TARGET's policy one field at a time and recording the result:
+ *
+ *   minEdge 0.9                 NON_COMPLIANT         edge.threshold-respected
+ *   maxSingleBetPct 0.000001    NON_COMPLIANT         bankroll.stake-within-unit-rules
+ *   maxTotalExposurePct 1e-6    BLOCKED_BY_INVARIANT  exposure.no-cap-breaches
+ *   maxGroupExposurePct 1e-6    BLOCKED_BY_INVARIANT  exposure.no-cap-breaches
+ *   maxOddsAgeMinutes 1         NON_COMPLIANT         line.staleness-checked
+ *   maxPredictionAgeMinutes 1   NON_COMPLIANT         line.staleness-checked
+ *   kellyMultiplier 1           NON_COMPLIANT         bankroll.stake-within-unit-rules
+ *
+ * Four distinct rules and three distinct statuses. The list is measured rather than chosen because a
+ * perturbation that cannot move the verdict proves nothing about a leak: an earlier draft of this
+ * file perturbed longshotOddsThreshold, which leaves this ledger COMPLIANT whichever policy supplies
+ * it, so that row would have passed the independence assertion even with the defect fully restored.
+ *
+ * The three excluded fields — longshotOddsThreshold, unitPercent, longshotMinDiscount — are inert
+ * against THESE records, not inert in general. That is a property of the fixture ledger, and it is
+ * why this list is a measurement with a date rather than a rule about the pack.
+ */
+const DECISION_RELEVANT = [
+  ["minEdge", "0.9"],
+  ["maxSingleBetPct", "0.000001"],
+  ["maxTotalExposurePct", "0.000001"],
+  ["maxGroupExposurePct", "0.000001"],
+  ["maxOddsAgeMinutes", "1"],
+  ["maxPredictionAgeMinutes", "1"],
+  ["kellyMultiplier", "1"],
+];
+
 test("the target's own threshold decides its verdict", async () => {
   // Row 1 of the measured table: a target whose records violate its OWN declared minimum must fail,
   // whatever this pack's number is. Before the fix this returned COMPLIANT with scored: 25.
@@ -155,17 +186,8 @@ test("no threshold in this pack's policy can move an external target's result", 
   const target = makeTarget("0.02");
   const baseline = comparable((await validate(target)).report);
 
-  const perturbations = [
-    ["minEdge", "0.9"],
-    ["maxSingleBetPct", "0.000001"],
-    ["maxTotalExposurePct", "0.000001"],
-    ["maxGroupExposurePct", "0.000001"],
-    ["maxOddsAgeMinutes", "1"],
-    ["longshotOddsThreshold", "1"],
-  ];
-
   try {
-    for (const [field, value] of perturbations) {
+    for (const [field, value] of DECISION_RELEVANT) {
       writeFileSync(PACK_POLICY, PACK_POLICY_AS_COMMITTED, "utf8");
       setThreshold(PACK_POLICY, field, value);
       const after = comparable((await validate(target)).report);
@@ -204,6 +226,48 @@ test("a target with no betting policy is not judged against this pack's", async 
       baseline,
       "this pack's policy was consulted for a target that declares none",
     );
+  } finally {
+    writeFileSync(PACK_POLICY, PACK_POLICY_AS_COMMITTED, "utf8");
+  }
+});
+
+test("every decision-relevant threshold the TARGET moves changes the target's result", async () => {
+  // The converse, and the half that stops the fix from being satisfied by an evaluator that reads no
+  // policy at all. Independence from THIS pack's policy is only a virtue if the target's policy is
+  // doing the work instead — otherwise "identical across all perturbations" is also what an evaluator
+  // that ignores thresholds entirely would produce.
+  const baseline = comparable((await validate(makeTarget("0.02"))).report);
+  assert.equal(baseline.status, "COMPLIANT");
+
+  for (const [field, value] of DECISION_RELEVANT) {
+    const moved = makeTarget("0.02");
+    setThreshold(path.join(moved, "betting-policy.yml"), field, value);
+    const after = comparable((await validate(moved)).report);
+    assert.notDeepEqual(
+      after,
+      baseline,
+      `the target's own ${field}=${value} did not change its result, so the target's policy is not ` +
+        "governing — or this row has stopped being decision-relevant and the list needs re-measuring",
+    );
+    assert.notEqual(after.status, "COMPLIANT", `${field}=${value} left the target compliant`);
+  }
+});
+
+test("this repository still validates its own ledger under its own policy", async () => {
+  // The other direction of the same ownership rule, and the regression this fix could most plausibly
+  // have caused: a pack so careful not to lend its policy out that it stops applying it to itself.
+  // The subject here is the pack copy — its own root, its own examples/ledger, its own thresholds.
+  const { code, report } = await validate(PACK);
+  assert.equal(report.status, "COMPLIANT", `the pack no longer passes its own gate: ${report.status}`);
+  assert.equal(code, 0);
+  assert.ok(report.denominator.scored > 0, "a self-validation that scores nothing is not a pass");
+
+  // And it is genuinely reading its own file rather than passing vacuously: its own threshold still
+  // bites its own records.
+  try {
+    setThreshold(PACK_POLICY, "minEdge", "0.9");
+    const strict = await validate(PACK);
+    assert.equal(strict.report.status, "NON_COMPLIANT", "the pack's own policy no longer governs its own ledger");
   } finally {
     writeFileSync(PACK_POLICY, PACK_POLICY_AS_COMMITTED, "utf8");
   }
