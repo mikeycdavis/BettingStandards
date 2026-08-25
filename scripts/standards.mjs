@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { parseYaml } from "./yaml.mjs";
 import { loadCatalog, resolve, coverage, assertBindings, CatalogError } from "./catalog.mjs";
 import { evaluate, envelope, STATUS } from "./compliance.mjs";
-import { checkDecisions, FINDING_RULES } from "./decisions.mjs";
+import { checkDecisions, FINDING_RULES, SUPPLIED_RULES } from "./decisions.mjs";
 import { plan as initPlan, apply as initApply } from "./init.mjs";
 
 const EXIT_OK = 0;
@@ -78,6 +78,7 @@ export const EVALUATED_RULES = [
   "exposure.no-cap-breaches",
   "line.staleness-checked",
   "line.clv-computed",
+  "line.movement-recorded",
   // Established by the record's structure and provenance fields.
   "odds.conversion-exact",
   "odds.quote-provenance",
@@ -104,7 +105,6 @@ export const EVALUATED_RULES = [
   "bankroll.unit-defined",
   "exposure.caps-defined",
   "decision.no-bet-quota",
-  "line.movement-recorded",
   "evaluation.process-metrics-defined",
 ];
 
@@ -293,11 +293,13 @@ async function gatherEvidence(plan) {
   // is not a substitute. The records are left unevaluated — the trimming below reports them as such,
   // and policyFindings already fails the four rules that require the policy to exist. An adopting
   // project learns that its thresholds are undeclared, rather than being told it passed ours.
+  let suppliedRules = SUPPLIED_RULES;
   if (plan.hasBettingPolicy) {
     const result = await checkDecisions({ dir: plan.ledgerDir, policyPath: plan.bettingPath });
     findings.push(...result.findings);
     recordsChecked = result.records;
     ledgerPresent = result.ledgerPresent;
+    suppliedRules = result.suppliedRules;
   } else {
     ledgerPresent = await exists(plan.ledgerDir);
   }
@@ -305,15 +307,19 @@ async function gatherEvidence(plan) {
   findings.push(...(await policyFindings(plan)));
   findings.push(...(await documentFindings(plan)));
 
-  // An absent or empty ledger means the record-derived rules evaluated nothing. Saying they passed
-  // would be reporting a clean bill of health from a chart nobody opened.
+  // The checker did not run, or ran over nothing. Either way every rule whose evidence it supplies
+  // evaluated nothing, and saying they passed would be a clean bill of health from a chart nobody
+  // opened.
+  //
+  // The set comes from the checker, never from a list kept here. This used to be a prefix match over
+  // rule ids — `record.`, `decision.`, `odds.`, `edge.computed`, and so on — which was a second,
+  // hand-maintained description of another module's behaviour and was measurably wrong: it missed
+  // three `edge.*` rules, so a target with a full ledger and no betting policy reported them passed
+  // at full assurance from records nothing had read. Two representations of one fact stay in step
+  // only by luck, and the luck had already run out. See test/supplied-rules.test.mjs.
   const evaluated = new Set(EVALUATED_RULES);
   if (!ledgerPresent || recordsChecked === 0) {
-    for (const id of [...evaluated]) {
-      if (id.startsWith("record.") || id.startsWith("decision.") || id.startsWith("odds.") || id.startsWith("probability.") || id.startsWith("vig.") || id.startsWith("edge.computed") || id.startsWith("ev.") || id.startsWith("uncertainty.") || id.startsWith("exposure.aggregate") || id.startsWith("exposure.correlated") || id.startsWith("line.")) {
-        if (id !== "edge.minimum-threshold-defined") evaluated.delete(id);
-      }
-    }
+    for (const id of suppliedRules) evaluated.delete(id);
   }
 
   assertBindings(plan.catalog, findings.map((f) => f.rule).filter(Boolean));
