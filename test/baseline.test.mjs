@@ -37,12 +37,18 @@ const rules = [...catalog.rules.values()];
 /**
  * The published shape.
  *
- * `version` moved to 1.0.1 for the adapter-contract release, and it is the ONLY field that moved.
- * Every other number below is the one v1.0.0 shipped with, still passing — which is what makes
- * "interoperability metadata, no normative change" a proof rather than a label.
+ * `version` moved to 1.1.0 for the target-policy correction (ADR 0008), and it is the ONLY field that
+ * moved — as it was the only one that moved for 1.0.1 before it. Every other number below is the one
+ * v1.0.0 shipped with, still passing.
+ *
+ * That matters more for this release than for the last one. 1.0.1 was metadata and could claim "no
+ * normative change" cheaply; 1.1.0 changes what `validate` does to an external target, so the claim
+ * that the STANDARDS did not change needs to be mechanical rather than asserted. The evidence that
+ * justifies moving `version` is the measurement in ADR 0008 and the suite in
+ * test/target-policy.test.mjs, both in the same diff as this line.
  */
 const BASELINE = {
-  version: "1.0.1",
+  version: "1.1.0",
   standards: 21,
   rules: 51,
   required: 25,

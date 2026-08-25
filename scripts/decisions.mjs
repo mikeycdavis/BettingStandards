@@ -42,6 +42,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_SCHEMA = path.join(ROOT, "schemas/decision-record.schema.json");
 
 /**
+ * THIS PACK's betting policy. It governs THIS pack's worked examples and nothing else.
+ *
+ * A caller evaluating anyone else's records must name the policy those records were decided under.
+ * Falling back to this file for a directory that is not this repository's is how a project's
+ * decisions get judged against thresholds it never declared — a verdict about the wrong numbers,
+ * shaped exactly like a correct one.
+ */
+const OWN_POLICY = path.join(ROOT, "betting-policy.yml");
+
+/**
  * Phrases that claim certainty about a wager.
  *
  * This is a string scan and is documented as one, in the catalog and here. It catches the careless
@@ -545,13 +555,15 @@ async function readLedger(dir) {
 }
 
 /** Programmatic entry point, shared by the CLI and by `standards audit`. */
-export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyPath, record: single } = {}) {
+export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyPath = OWN_POLICY, record: single } = {}) {
   const schema = JSON.parse(await readFile(schemaPath, "utf8"));
   assertSchemaSupported(schema);
-  const policy = await loadBettingPolicy(...(policyPath ? [policyPath] : []));
-  const policyDigest = createHash("sha256")
-    .update(await readFile(policyPath ?? path.join(ROOT, "betting-policy.yml"), "utf8"))
-    .digest("hex");
+  // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own
+  // fallback and the digest read supplied another — which agreed only because both happened to name
+  // the same file. Two defaults that must stay in step are a digest that can end up describing a
+  // policy other than the one the records were judged under.
+  const policy = await loadBettingPolicy(policyPath);
+  const policyDigest = createHash("sha256").update(await readFile(policyPath, "utf8")).digest("hex");
 
   let records = [];
   const findings = [];
@@ -579,17 +591,37 @@ export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyP
 }
 
 function parseArgs(argv) {
-  const options = { dir: null, record: null, json: false, dryRun: false };
+  const options = { dir: null, record: null, policyPath: null, json: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") options.json = true;
     else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--record") options.record = argv[++i];
     else if (arg === "--dir") options.dir = argv[++i];
+    else if (arg === "--policy") options.policyPath = argv[++i];
     else if (arg.startsWith("--")) throw new Error(`unknown flag '${arg}'`);
     else if (options.dir === null) options.dir = arg;
     else throw new Error(`unexpected argument '${arg}'`);
   }
+
+  // Records from somewhere else need a policy from somewhere else. Refusing is the whole point: the
+  // alternative is this pack's thresholds silently judging another project's decisions, which exits 0
+  // and reads as a clean bill of health. `standards validate` needs no flag because it knows the
+  // target's root and reads the policy from it; `check` is handed a ledger directory and cannot
+  // derive a repository root from it without guessing.
+  if ((options.dir || options.record) && !options.policyPath) {
+    throw new Error(
+      "records outside this repository must be checked against their own policy — pass --policy <path>.\n" +
+        "  With no --dir and no --record, this command checks this repository's own examples/ledger\n" +
+        "  against its own betting-policy.yml, which is the only case where the default is the truth.",
+    );
+  }
+
+  // Explicit rather than left null, so the value that reaches `checkDecisions` is the value this
+  // function decided on. A null would silently take the parameter default instead, which is the
+  // second place a default could live.
+  options.policyPath ??= OWN_POLICY;
+
   if (options.record && !options.dir) return options;
   options.dir ??= path.join(ROOT, "examples/ledger");
   return options;

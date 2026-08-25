@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.1.0 — 2026-08-16
+
+**Evaluator semantics corrected. Externally observable: a target that passed only because of this
+defect will now report what it actually is.** No normative change — see "Unchanged" below.
+
+`standards validate <target>` judged an external project's decision records against **this
+repository's** `betting-policy.yml`. It read the target's `project-policy.yml` from the target, and
+the target's `betting-policy.yml` from the target for the rules that ask whether the thresholds are
+declared — and then evaluated the records themselves against ours, because the call that does the
+evaluating omitted the policy path and the default was this pack's own file.
+
+Measured before the fix: a target declaring `minEdge: "0.90"`, whose records carry an adjusted edge of
+0.040463, returned `COMPLIANT`, exit 0, `denominator.scored: 25`. It cleared every gate a consumer
+could check. ADR 0008 records the measurement, the two-row table that isolates the cause, and the
+mutants each new guard was run against.
+
+### Changed
+
+- `validate` binds the target's `betting-policy.yml`. A target that declares none is no longer lent
+  this one: the record-derived rules are reported unevaluated, and the findings that already fail for
+  a missing policy continue to say why.
+- `standards check <target>` binds the same path, and **exits 2** where a target declares no betting
+  policy. It previously produced a report derived from thresholds that project never declared. This is
+  the one strictly breaking change in this release.
+- `node scripts/decisions.mjs` accepts `--policy <path>`, and refuses `--dir` or `--record` without
+  it. That entry point is handed a ledger directory and cannot find the repository root above it
+  without guessing.
+- `checkDecisions` resolves its policy path once instead of defaulting twice — the recorded policy
+  digest and the policy actually loaded can no longer be two different files.
+
+### Unchanged
+
+Every standard, every rule, and every level, severity, disposition and assurance value; the verdict
+vocabulary; the scoring; the exit codes; `standards-adapter.json`, whose declared invocation was
+correct before and after. `test/baseline.test.mjs` pins the published shape and `version` is again the
+only field in it that moved — 21 standards, 51 rules at 25/3/23, 23 non-exemptible prohibitions, 8
+manual-review, 41 evaluated, 13 fully machine-represented, `COMPLIANT` at 94.
+
+### Why a minor rather than a patch
+
+A patch would say the observable behaviour is the same, and it is not: verdicts change for external
+targets, and `check` refuses inputs it used to accept. `v1.0.1` is left standing with the defect it
+shipped rather than amended, so the historical release stays reproducible.
+
 ## 1.0.1 — 2026-08-09
 
 **Interoperability metadata. No normative or evaluator semantic change.**

@@ -152,7 +152,7 @@ examples/           5 worked decisions, 5 walkthroughs, 23 violation documents
 templates/          what an adopting project copies, including AGENTS.md
 design/             the concept model and the architecture/milestone plan
 artifacts/prompts/  both governing briefs, committed untouched
-artifacts/adr/      6 accepted decision records
+artifacts/adr/      8 accepted decision records
 docs/               architecture and the pipeline diagram
 ```
 
@@ -162,11 +162,18 @@ docs/               architecture and the pipeline diagram
 | --- | --- | --- |
 | `standards init <dir> [--dry-run]` | Bootstrap a project. Never overwrites. | 0, 1 on conflict |
 | `standards plan <dir>` | What would be evaluated, and what evidence it needs. | 0, 2 |
-| `standards check [<dir>]` | Re-derive and re-evaluate decision records. | 0, 1, 2 |
+| `standards check [<dir>]` | Re-derive and re-evaluate decision records, against that directory's own `betting-policy.yml`. | 0, 1, 2 |
 | `standards audit <dir>` | Evidence: every finding, no verdict. | 0, 2 |
 | `standards validate <dir>` | The verdict, with coverage. **The CI gate.** | 0, 1, 2 |
 | `standards explain <rule-id>` | What a rule means and how it is checked. | 0, 1 |
 | `standards status <dir>` | Orientation. Informs; never gates. | 0, 2 |
+
+Every command handed a directory judges that directory against **the policies inside it** —
+`project-policy.yml` for which rules apply, `betting-policy.yml` for what the numbers are. This
+repository's own `betting-policy.yml` governs the worked examples in `examples/ledger` and nothing
+else. A project that has not declared its thresholds is not lent these: `check` exits 2, and
+`validate` reports the rules that need them as unevaluated rather than passing them against numbers
+nobody wrote down. See [ADR 0008](artifacts/adr/0008-the-target-owns-the-policy-it-is-judged-against.md).
 
 Plus the repository's own invariant checks: `npm run inventory`, `npm run fidelity`,
 `npm run policy`, `npm run diagrams`.
