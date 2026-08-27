@@ -38,6 +38,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// A fixture project must declare the version that is going to evaluate it. `validate` refuses a
+// mismatch with exit 2 (see test/declared-version.test.mjs), so a hardcoded version here would make
+// every fixture below fail on the next release for a reason that has nothing to do with what it
+// tests. Read, never written down twice.
+const PACK_VERSION = fs.readFileSync(path.join(ROOT, "VERSION"), "utf8").trim();
 const contract = JSON.parse(fs.readFileSync(path.join(ROOT, "standards-adapter.json"), "utf8"));
 
 /** Distinctive enough that finding it in a report proves which tree produced the report. */
@@ -63,7 +69,7 @@ function externalTarget() {
   fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
   fs.writeFileSync(
     path.join(dir, "project-policy.yml"),
-    `standardVersion: "1.0.0"\nproject: "${TARGET_PROJECT}"\nexceptions: []\n`,
+    `standardVersion: "${PACK_VERSION}"\nproject: "${TARGET_PROJECT}"\nexceptions: []\n`,
   );
   fs.writeFileSync(path.join(dir, "README.md"), "# A governed project, not a standards pack\n");
   return dir;

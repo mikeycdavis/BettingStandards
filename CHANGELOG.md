@@ -50,9 +50,44 @@ A second defect of the same family was found and fixed before this release shipp
 repair had already merged. `gatherEvidence` decided which rules lose their evidence when decision
 evaluation does not run by matching rule-id **prefixes it maintained itself**, one module away from
 the checker that produces the findings. That approximation missed seven record-derived rules, so a
-target with a full ledger and no betting policy still reported them `passed` at full assurance. The
-prefix list was deleted rather than extended; ADR 0008 records why a longer enumeration outside the
-authority that creates the findings would have been correct only until the next rule was added.
+target with a full ledger and no betting policy still reported all seven as `passed` and `evaluated`
+— two of them at full assurance, five at partial — from records nothing had read. The prefix list
+was deleted rather than extended; ADR 0008 records why a longer enumeration outside the authority
+that creates the findings would have been correct only until the next rule was added.
+
+A third defect surfaced in review of this release and is fixed here: `validate` never checked a
+target's declared `standardVersion` against the version doing the evaluating.
+
+### Breaking — a project is evaluated only by the version it declares
+
+`standards validate <target>` now **exits 2** unless the target's declared `standardVersion` is
+exactly the version of the executing checkout. A declaration that is absent, is not a version, or
+names a different release is a configuration error and produces no verdict.
+
+This is a long-standing schema guarantee finally being kept, not a new rule.
+`schemas/project-policy.schema.json` has described the field since `v1.0.0` as *"the framework
+version this project is evaluated against"* and said in the same sentence that an unresolvable
+version is *"a configuration error, not a compliance failure — exit 2, never a verdict"*. Nothing
+implemented it: the field was read, echoed into the result envelope, and ignored. A target's policy
+is never validated against that schema, so not even `required` or the semver `pattern` were enforced.
+
+**Why this release rather than the next.** While the pack was 1.0.x the gap was dormant — a target
+declaring `1.0.0` got 1.0.x semantics, so the label was accidentally true. This release changes what
+`validate` does to an external target, and `v1.0.0` is the only release anyone can pin, so an
+unchanged v1 declaration would silently cross a major semantic boundary and be handed a 2.0.0 verdict
+labelled `1.0.0`. Measured before the fix, on this candidate: a target declaring `1.0.0` returned
+`COMPLIANT`, score 96, coverage 41, exit 0, envelope `standardVersion: "1.0.0"`. Shipping the major
+without the check would have knowingly published a release that contradicts its own schema — and a
+result produced by one framework version and labelled as another is the same false green this pack
+refuses everywhere else, wearing a version number instead of a rule id.
+
+Matching is **exact equality**. This pack has no compatibility range and no version-resolution
+mechanism, and one was deliberately not invented here. `validate` is the only command affected,
+because it is the only one that stamps the declared version onto its output; `audit` and `status`
+emit no `standardVersion` and so mislabel nothing.
+
+To adopt: read this entry, then set `standardVersion: "2.0.0"` in your `project-policy.yml`. The
+refusal names both versions and says exactly that.
 
 ### Breaking — command line
 
