@@ -27,7 +27,7 @@ follow from its inputs.
 ## Quick start
 
 ```bash
-npm test                      # 225 tests, zero dependencies
+npm test                      # 236 tests, zero dependencies
 npm run check                 # re-derive every number in the worked examples
 npm run validate              # the verdict, with honest coverage
 node scripts/standards.mjs explain bankroll.no-martingale
@@ -147,7 +147,7 @@ standards/          21 numbered normative documents
 rules/              13 category files — the machine-readable catalog
 schemas/            decision record, betting policy, project policy
 scripts/            the CLI, the betting arithmetic, and the invariant checks
-test/               225 tests, including one known-negative per detectable prohibition
+test/               236 tests, including one known-negative per detectable prohibition
 examples/           5 worked decisions, 5 walkthroughs, 23 violation documents
 templates/          what an adopting project copies, including AGENTS.md
 design/             the concept model and the architecture/milestone plan
@@ -176,8 +176,9 @@ else. A project that has not declared its thresholds is not lent these: `check` 
 nobody wrote down. See [ADR 0008](artifacts/adr/0008-the-target-owns-the-policy-it-is-judged-against.md).
 
 A project is also only judged by the framework version it declares. `validate`, `audit`, `status` and
-`check` each exit 2 unless `standardVersion` in `project-policy.yml` is exactly the version of the
-checkout doing the evaluating — a judgement produced by one version and reported by another describes
+`check` each exit 2 — as do `scripts/policy.mjs` and `scripts/decisions.mjs` pointed at an external
+subject — unless `standardVersion` in `project-policy.yml` is exactly the version of the checkout
+doing the evaluating — a judgement produced by one version and reported by another describes
 a conclusion that version never reached. `plan`, `init` and `explain` still work, because they
 produce no evidence. The refusal names both versions, and [CHANGELOG.md](CHANGELOG.md) says what
 changed before you raise the number. See

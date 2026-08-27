@@ -62,9 +62,14 @@ declared `standardVersion` against the version doing the evaluating.
 
 `standards validate`, `standards audit`, `standards status` and `standards check` now **exit 2**
 unless the target's declared `standardVersion` is exactly the version of the executing checkout. So
-does `node scripts/decisions.mjs` when pointed at an external ledger. A declaration that is absent,
-is not a version, or names a different release is a configuration error and produces no verdict, no
-findings, and no coverage figure.
+do `node scripts/decisions.mjs` pointed at an external ledger and `node scripts/policy.mjs` pointed
+at an external policy. A declaration that is absent, is not a version, or names a different release
+is a configuration error and produces no verdict, no findings, and no coverage figure.
+
+**Absence and contradiction are the same class here.** A subject that declares no `standardVersion`
+is refused exactly as one declaring the wrong version is: in both cases the executing framework has
+not been authorized to interpret the subject. Treating absence more permissively would create a route
+where saying nothing is safer than saying something wrong.
 
 `standards plan`, `init` and `explain` are unaffected. They produce no evidence, so there is no
 judgement to attribute to a framework — and `plan` in particular is the one command that can still
@@ -90,7 +95,7 @@ refuses everywhere else, wearing a version number instead of a rule id.
 Matching is **exact equality**. This pack has no compatibility range and no version-resolution
 mechanism, and one was deliberately not invented here.
 
-**The check guards evaluation, not reporting, and it took three attempts to place it there.** The
+**The check guards evaluation, not reporting, and it took four attempts to place it there.** The
 first implementation put it in `validate` alone, reasoning that `validate` is the only command that
 stamps the declared version onto its output. Review found `audit` and `status` evaluating the same
 records unguarded — and `audit --strict` returning that as a gating failure, which is a
@@ -99,12 +104,20 @@ in the shared evidence-gathering step those three commands call. Review found `s
 `node scripts/decisions.mjs` reaching the record checker without passing through it at all, and
 measured both re-deriving five records of a target declaring `1.0.0` under a 2.0.0 checkout, exit 0.
 
-Both placements were a list of callers wearing the costume of a boundary. The check now lives in the
-two authorities that actually produce evidence — the project-level one and the record-level one, each
-guarding what it establishes, both asking one shared implementation. The number of guards follows the
-number of places evidence is made, not the number of ways to ask for it, so a new command or flag
-cannot add a door. **ADR 0009** records the full topology, the two placements that failed, and why
-there is deliberately no self-checkout exemption.
+The third put it in the two authorities that produce evidence. Review found a third authority:
+`scripts/policy.mjs` / `checkPolicy()` loads this checkout's rule catalog and applies `nonExemptible`
+to a policy document it is pointed at, reaching neither of the other two. An external policy declaring
+`1.0.0` produced `policy.non-exemptible-rule` at **exit 1** — a findings exit, about a subject that
+never authorized this framework to judge it.
+
+Every one of those placements was a list of callers wearing the costume of a boundary, and each
+inventory behind them was assembled by hand. The check now lives in the three authorities that
+produce evidence, each guarding what it establishes, all asking one shared implementation — and the
+inventory itself is derived rather than asserted: `test/evidence-surface-census.test.mjs` builds it
+by globbing `scripts/` and importing every module, and fails when it meets a file or an export nobody
+has classified. **ADR 0009** records the full topology, the three placements that failed, why there is
+deliberately no self-checkout exemption, and the one surface the census classifies by reading rather
+than by running.
 
 To adopt: read this entry, then set `standardVersion: "2.0.0"` in your `project-policy.yml`. The
 refusal names both versions and says exactly that.
@@ -130,12 +143,19 @@ refusal names both versions and says exactly that.
   function left the same mistake available to any caller that does not go through `parseArgs`.
   `projectPolicyPath` takes a path, never a version string: a caller chooses *which* project policy
   speaks for these records, never what it says.
+- `checkPolicy(policyPath, schemaPath, today)` **throws `WrongFramework`** rather than returning
+  findings when the subject's declared version is not the executing one. It accepts an optional
+  fourth argument, `{ authorityPath }`, naming the project policy that carries the declaration; it
+  defaults to the subject, because a project policy is its own declaration.
 - Fails closed, everywhere: a missing target betting policy produces exit 2 or an unevaluated rule,
   never a verdict. Exit 2 is still never reported as non-compliance.
 
 ### Added
 
 - `--policy <path>` and `--project-policy <path>` on `scripts/decisions.mjs`.
+- `--project-policy <path>` on `scripts/policy.mjs`, required with `--betting <path>` for any betting
+  policy but this repository's own: a betting policy declares no framework version, so the project
+  whose framework judges it is named rather than assumed.
 - `checkOwnExamples()` — this repository's own ledger against its own policy, the one case where the
   pack may supply the numbers, given a name so it cannot be mistaken for generic behaviour.
 - `SUPPLIED_RULES`, exported by the decision checker: the exact set of rules its execution

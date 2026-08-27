@@ -182,9 +182,11 @@ never retroactively re-judges past decisions.
    not-evaluated.
 3. `gatherEvidence(plan)` refuses outright unless the project's declared `standardVersion` is the
    version this checkout executes, then calls `checkDecisions()` in `decisions.mjs`, which refuses on
-   the same grounds again before opening anything. Those are the two authorities that produce
-   evidence in this pack, and each guards what it establishes; see ADR 0009 for why the guard is not
-   in the commands. For each record in `examples/ledger/` (or `ledger/` in an adopting project),
+   the same grounds again before opening anything. Those are two of the three authorities that
+   produce evidence in this pack — `checkPolicy()` in `policy.mjs` is the third — and each guards what
+   it establishes; see ADR 0009 for why the guard is not in the commands, and
+   `test/evidence-surface-census.test.mjs` for the derived inventory that keeps the list of three
+   honest. For each record in `examples/ledger/` (or `ledger/` in an adopting project),
    `checkDecisions` recomputes every derived value through `betmath.mjs` and re-evaluates the
    decision rule.
 4. Policy-level and document-level detectors add findings for thresholds, caps, and required

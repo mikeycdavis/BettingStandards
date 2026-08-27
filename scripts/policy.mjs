@@ -23,6 +23,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseYaml, YamlError } from "./yaml.mjs";
 import { validate, assertSchemaSupported, SchemaError } from "./jsonschema.mjs";
+import { declaredVersionRefusal, WrongFramework } from "./framework-version.mjs";
 
 const EXIT_OK = 0;
 const EXIT_FINDINGS = 1;
@@ -146,28 +147,73 @@ function complianceFindings(document, today, catalog) {
 }
 
 function parseArgs(argv) {
-  const options = { policy: null, schema: null, json: false, betting: false };
+  const options = { policy: null, schema: null, projectPolicy: null, json: false, betting: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") options.json = true;
     else if (arg === "--betting") options.betting = true;
     else if (arg === "--schema") options.schema = argv[++i];
+    else if (arg === "--project-policy") options.projectPolicy = argv[++i];
     else if (arg.startsWith("--")) throw new Error(`unknown flag '${arg}'`);
     else if (options.policy === null) options.policy = arg;
     else throw new Error(`unexpected argument '${arg}'`);
   }
   if (options.betting) {
+    // A betting policy declares no framework version. It is a component of a project, and the
+    // project is what declares — so for anything but this repository's own file, the governing
+    // project policy is named rather than assumed. Same refusal, same reason, as `--policy` on
+    // `decisions.mjs`: two identities a config file cannot supply about itself.
+    if (options.policy && !options.projectPolicy) {
+      throw new Error(
+        "a betting policy declares no standardVersion, so the project whose framework judges it must be named —\n" +
+          "  pass --project-policy <path to that project's project-policy.yml>.\n" +
+          "  Nothing is searched for: a betting policy sitting next to a project policy is not evidence\n" +
+          "  that the two belong together.",
+      );
+    }
     options.policy ??= BETTING_POLICY;
     options.schema ??= BETTING_SCHEMA;
+    options.projectPolicy ??= DEFAULT_POLICY;
   } else {
     options.policy ??= DEFAULT_POLICY;
     options.schema ??= DEFAULT_SCHEMA;
+    // A project policy carries its own declaration. The subject IS the authority, so nothing is
+    // assumed and nothing extra is required — `checkPolicy` opens what it was already given.
+    options.projectPolicy ??= options.policy;
   }
   return options;
 }
 
-/** Returns { status, errors, findings, document }. status is one of ok|findings|invalid. */
-export async function checkPolicy(policyPath, schemaPath, today) {
+/**
+ * Returns { status, errors, findings, document }. status is one of ok|findings|invalid.
+ *
+ * THE THIRD AUTHORITY. This function loads THIS checkout's rule catalog and applies `nonExemptible`
+ * to a policy document it was pointed at. That is this pack's standards semantics interpreting an
+ * external subject, and it reaches neither `gatherEvidence` nor `checkDecisions` — which is how the
+ * declared-version rule, having been placed correctly in both of those, still had a door around it.
+ *
+ * Measured before this guard: an external policy declaring `standardVersion: "1.0.0"` with an
+ * exception against a rule the 2.0.0 catalog marks non-exemptible produced
+ * `policy.non-exemptible-rule` and exit 1 — a findings exit, about a subject that never authorized
+ * this framework to judge it. Which rules are non-exemptible is exactly the kind of thing a major
+ * version may change; whether the finding also happens to hold under 1.0.0 is beside the point,
+ * because it was not established by a framework the subject declared.
+ *
+ * `authorityPath` names the project policy that carries the declaration. For a project policy the
+ * subject IS the declaration, so the caller passes the same path and the function opens it once more
+ * for that purpose — the version is never accepted as a string from a caller, following the rule
+ * `checkDecisions` already follows. A betting policy declares no framework and is a component of a
+ * project, so the governing project policy is named. Nothing walks upward; nothing infers ownership
+ * from filesystem shape.
+ *
+ * THE GUARD IS FIRST — before the schema is read, before the document is validated, before the
+ * catalog is loaded. Authority precedes interpretation, and the schemas in `schemas/` are a
+ * normative surface of this pack like the catalog is.
+ */
+export async function checkPolicy(policyPath, schemaPath, today, { authorityPath = policyPath } = {}) {
+  const refusal = await declaredVersionRefusal(authorityPath);
+  if (refusal) throw new WrongFramework(refusal);
+
   const schema = JSON.parse(await readFile(schemaPath, "utf8"));
   assertSchemaSupported(schema);
 
@@ -246,19 +292,25 @@ async function main() {
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  // Each target carries the authority that governs it. The second target below is THIS repository's
+  // own betting policy, so its authority is this repository's own project policy — never the subject
+  // the command was pointed at, which would be attributing our file to someone else's declaration.
   const targets = options.betting
-    ? [{ policy: options.policy, schema: options.schema }]
+    ? [{ policy: options.policy, schema: options.schema, authority: options.projectPolicy }]
     : [
-        { policy: options.policy, schema: options.schema },
-        { policy: BETTING_POLICY, schema: BETTING_SCHEMA },
+        { policy: options.policy, schema: options.schema, authority: options.projectPolicy },
+        { policy: BETTING_POLICY, schema: BETTING_SCHEMA, authority: DEFAULT_POLICY },
       ];
 
   let worst = EXIT_OK;
   for (const target of targets) {
     let result;
     try {
-      result = await checkPolicy(target.policy, target.schema, today);
+      result = await checkPolicy(target.policy, target.schema, today, { authorityPath: target.authority });
     } catch (error) {
+      // A WrongFramework arrives here like any other unreadable-input error and leaves by the same
+      // door: exit 2, never a findings exit. "This checkout may not judge that subject" and "that
+      // subject has a problem" are different facts, and the second must not be reported for the first.
       const detail = error instanceof SchemaError ? `schema: ${error.message}` : error.message;
       process.stderr.write(`standards policy: ${detail}\n`);
       process.exit(EXIT_INVOCATION);

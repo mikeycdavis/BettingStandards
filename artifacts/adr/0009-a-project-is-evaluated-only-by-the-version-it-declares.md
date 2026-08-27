@@ -41,19 +41,34 @@ own evidence; producing one as a side effect of a fix is how an unreviewed contr
 
 ## Why this ADR is mostly about *where*
 
-The rule above was never in dispute. It was placed three times, and the first two placements were
+The rule above was never in dispute. It was placed four times. The first three placements were each
 locally convincing, defended in a commit message, covered by passing mutation tests, and wrong.
 
 | # | Placement | The reasoning at the time | What review found |
 | --- | --- | --- | --- |
 | 1 | `runValidate` | `validate` is the only command that stamps `standardVersion` onto its output, so it is the only one that can mislabel a result | `audit` and `status` call `gatherEvidence` directly. `audit --strict` returned a wrong-framework evaluation as a **gating failure** |
 | 2 | `gatherEvidence` | That is where evaluation happens | It is where evaluation happens for three commands. `standards check <target>` and `node scripts/decisions.mjs --dir <ledger>` reach `checkDecisions` without passing through it. Both re-derived five records of a target declaring `1.0.0` under a 2.0.0 checkout, exit 0 |
-| 3 | The evidence authorities themselves | Below | — |
+| 3 | `gatherEvidence` + `checkDecisions` | those are the authorities that produce evidence | **also wrong.** `policy.mjs` / `checkPolicy()` loads this checkout's rule catalog and applies `nonExemptible` to a policy document it is pointed at, reaching neither. An external policy declaring `1.0.0` produced `policy.non-exemptible-rule` and **exit 1** — a findings exit, about a subject that never authorized this framework |
+| 4 | The evidence authorities, enumerated mechanically | Below | — |
 
 Each fix removed one enumeration and left a smaller one behind. That is a shape, not a run of bad
 luck: **the guard was placed at the boundary that covered the callers already in mind, rather than at
 the boundary the evidence is produced by.** A list of callers can be made complete on Tuesday and be
 incomplete on Wednesday, and nothing in the code will say so.
+
+**The third placement was right about the principle and wrong about the inventory, and the first
+version of this ADR said so in a sentence that was false when it was written:** *"This pack has
+exactly two authorities that produce evidence."* It had three. The census behind that claim was built
+by reading the code and remembering what was in it — the same method that produced the two previous
+inventories, both of which an external reviewer falsified. "I traced it carefully" is not evidence
+about completeness; it is the identical claim that had already been wrong twice.
+
+So the census is no longer asserted. `test/evidence-surface-census.test.mjs` derives it: the entry
+points come from globbing `scripts/`, and the surface list comes from importing every module and
+reading what it actually exports. Every file and every export must carry a classification with a
+recorded reason, checked in both directions, so adding either fails the suite until somebody says
+what the new surface does with an external subject. The rule below is the judgement; the census is
+the thing that stops the judgement being applied to an incomplete list.
 
 It is the same correction as ADR 0008's rule-ownership addendum, made twice more. There, an
 enumeration of rule ids was maintained one module away from the checker that produced the findings.
@@ -61,9 +76,12 @@ Here, an enumeration of *callers* was maintained one layer away from the code th
 evidence. The remedy is identical: the thing that establishes something owns the check on its
 authority to establish it.
 
-## The topology, established by tracing
+## The topology, derived rather than recalled
 
-Every externally reachable path that can evaluate a decision record:
+Every externally reachable surface that can interpret an external subject using this checkout's
+standards semantics. This table is the human-readable form; the machine-checked form is
+`test/evidence-surface-census.test.mjs`, which builds the same list from the filesystem and from the
+modules' own exports and fails when it meets a member nobody has classified.
 
 | Path | Reaches records via | Project root known? | Class |
 | --- | --- | --- | --- |
@@ -77,26 +95,44 @@ Every externally reachable path that can evaluate a decision record:
 | `checkDecisions({…})` programmatic | itself | the caller's to state | caller declares |
 | `checkRecord(record, {policy, schema})` | — | n/a | internal primitive: one already-parsed record against an already-loaded policy. Below the authority boundary, reachable only by importing the module, and used by this repository's own negative fixtures |
 | `standards plan` / `init` / `explain` | — | — | produce no evidence |
+| `node scripts/policy.mjs <policy>` | **`checkPolicy` directly** | it IS the project policy | external subject; the subject carries its own declaration |
+| `node scripts/policy.mjs --betting <file>` | `checkPolicy` | **no** — a betting policy declares no framework | external subject; `--project-policy` names the governing declaration |
+| `checkPolicy(...)` programmatic | itself | the caller's to state | caller declares |
+| `loadBettingPolicy(path)` | — | n/a | primitive: validates a config file's shape and produces no finding, disposition, score, coverage or verdict |
 
 ## Where the guard went
 
-**This pack has exactly two authorities that produce evidence, and each guards what it establishes.**
+**Three authorities produce evidence, and each guards what it establishes.**
 
 1. **`gatherEvidence`** — project-level evidence: the policy findings, the document findings, the
    rule dispositions, and the coverage figure. All of these exist even when no decision record is
-   read, which is why this guard cannot be folded into the one below. A target with a full ledger and
+   read, which is why this guard cannot be folded into the others. A target with a full ledger and
    no `betting-policy.yml` never reaches `checkDecisions` at all, yet `audit` and `status` would
    still report dispositions and coverage derived from a framework the project never declared.
 2. **`checkDecisions`** — record-level evidence. Nothing evaluates a decision record without coming
    through it, from any command, any CLI, or any programmatic caller.
+3. **`checkPolicy`** — policy-level evidence. It loads this checkout's rule catalog and applies
+   `nonExemptible` to a policy document it was pointed at, reaching neither of the other two. Which
+   rules are non-exemptible is exactly the kind of thing a major version may change, so a finding
+   derived from it is a statement made under this checkout's semantics. Whether that finding happens
+   also to hold under the version the subject declared is beside the point: it was not established by
+   a framework the subject authorized.
 
-One implementation, in `scripts/framework-version.mjs`, asked by both. Neither evaluator owns it, so
-the two cannot drift into different ideas of what a version is.
+One implementation, in `scripts/framework-version.mjs`, asked by all three. No evaluator owns it, so
+they cannot drift into different ideas of what a version is.
+
+**The line, stated as a rule rather than a list.** A surface needs the check exactly when it
+*resolves* part of this checkout's standards semantics — the rule catalog, or a normative schema — on
+behalf of a subject it was pointed at. A surface handed the catalog, the schema and the policy by its
+caller resolves nothing: it cannot be reached without a resolver having run first, and it establishes
+nothing the caller had not already assembled. `checkRecord`, `checkLedger`, `evaluate`, `envelope`
+and `coverage` are primitives by that rule, and each is classified with its reason in the census.
 
 **The number of guards follows the number of places evidence is made, not the number of ways to ask
 for it.** That is the property that makes this an ownership rule rather than a third enumeration: a
 new command, a new flag, or a new caller cannot add a guard site, because it cannot add a place where
-evidence is produced.
+evidence is produced. What a new *module* can do is add one — which is what the derived census is
+for, and why it fails rather than passing when it meets a surface nobody has classified.
 
 ### The input is a path, never a version string
 
@@ -181,7 +217,14 @@ delete gatherEvidence's call site             validate + audit + status all leak
                                               no-betting-policy fixture that only this
                                               authority covers
 delete checkDecisions' call site              `standards check` + `decisions.mjs` both leak
+delete checkPolicy's call site                the reviewer's exact specimen returns —
+                                              `policy.non-exemptible-rule` by name, at a
+                                              findings exit, not merely a changed exit code
 ```
+
+The last of those asserts the finding **by id** rather than by exit code, because a guard that
+stopped the run for some unrelated reason would satisfy a code-only assertion while leaving the
+attribution defect exactly where it was.
 
 The second of those had to be rewritten during this change, and the rewrite is worth recording. It
 originally used a target *with* a betting policy and asserted all three commands leaked; once
@@ -203,6 +246,16 @@ It would have closed the door review had just found and left `decisions.mjs` ope
 the reason is the release this ADR ships in: 2.0.0 exists to *remove* a fallback that resolved a
 policy path by guessing. Replacing one guess with another, in the same function, in the same release,
 would have been the defect wearing a different hat.
+
+**Patch `policy.mjs` on its own.** The obvious response to the third review, and it would have left
+the fourth door unfound. The finding was never really "policy.mjs is unguarded"; it was "the
+inventory you are guarding from is assembled by hand." A one-off patch answers the specimen and
+leaves the method that produced it intact.
+
+**Accept a `standardVersion` string argument on `checkPolicy`.** Rejected for the reason
+`checkDecisions` already takes a path: a caller that extracts the declaration and passes the result
+has moved the reading of it outside the authority that acts on it. For a project policy the subject
+IS the declaration, so the function simply opens what it was already given.
 
 **A `trusted: true` / `selfCheckout: true` option on `checkDecisions`.** An exemption flag is a door
 that reads as safe at every call site and is only wrong at one of them. Naming the pack's own
