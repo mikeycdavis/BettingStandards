@@ -104,6 +104,75 @@ export const FINDING_RULES = {
 };
 
 /**
+ * Every catalog rule whose disposition a run of this checker establishes.
+ *
+ * WHY THIS LIVES HERE AND NOT IN THE EVALUATOR. `standards validate` has to know which rules lose
+ * their evidence when decision evaluation does not run — an absent ledger, an empty one, or a target
+ * that never declared the thresholds its records would be judged against. It used to answer that by
+ * matching rule-id prefixes in `standards.mjs`, a hand-maintained approximation of this module's
+ * behaviour kept one file away from the code that produces the findings.
+ *
+ * That approximation was wrong and was measured wrong: it missed `edge.threshold-respected`,
+ * `edge.no-fabricated-edge` and `edge.no-probability-only-bets`, so a 25-record ledger the checker
+ * never opened still reported those three as passed with full assurance. An enumeration maintained
+ * outside the authority that creates the findings cannot be kept true, because nothing forces the two
+ * to move together. This list is inside that authority, and test/supplied-rules.test.mjs mutates it
+ * to prove the evaluator reads it rather than a second copy.
+ *
+ * MOST OF THESE RULES PASS SILENTLY. Only the rules named in FINDING_RULES can carry a finding; the
+ * rest are established by this checker running to completion over records and disagreeing with
+ * nothing. That is exactly why they must be listed: a rule that passes by the absence of a finding is
+ * a rule that passes by default when no finding could have been produced at all.
+ *
+ * NOT INCLUDED, because a different source establishes them: `edge.minimum-threshold-defined`,
+ * `bankroll.defined-in-policy`, `bankroll.unit-defined`, `exposure.caps-defined`,
+ * `decision.no-bet-quota` (all from the betting policy's own contents) and
+ * `evaluation.process-metrics-defined` (from a document). Those survive a skipped ledger honestly,
+ * because their evidence was never in the records.
+ */
+export const SUPPLIED_RULES = [
+  // Re-derived arithmetic.
+  "probability.implied-from-price",
+  "vig.overround-computed",
+  "vig.no-ignored-vig",
+  "vig.removal-method-declared",
+  "edge.computed-from-inputs",
+  "edge.threshold-respected",
+  "edge.no-fabricated-edge",
+  "ev.computed-and-recorded",
+  "ev.no-fabricated-ev",
+  "uncertainty.discount-applied",
+  "uncertainty.estimate-recorded",
+  "bankroll.stake-within-unit-rules",
+  "exposure.aggregate-computed",
+  "exposure.correlated-bets-aggregated",
+  "exposure.no-cap-breaches",
+  "line.staleness-checked",
+  "line.clv-computed",
+  "line.movement-recorded",
+  // The record's structure and provenance fields.
+  "odds.conversion-exact",
+  "odds.quote-provenance",
+  "odds.no-fabrication",
+  "probability.fair-source-recorded",
+  "edge.no-probability-only-bets",
+  "decision.pipeline-complete",
+  "decision.no-priceless-recommendations",
+  "decision.pass-is-success",
+  "record.decision-record-required",
+  "record.pass-recorded",
+  "record.results-separated",
+  "record.no-silent-revision",
+  // Scans of recorded prose.
+  "uncertainty.no-guaranteed-language",
+  "uncertainty.no-hidden-uncertainty",
+  "ev.no-unsupported-ev-claims",
+  // Established across records rather than within one.
+  "bankroll.no-martingale",
+  "bankroll.no-loss-driven-sizing",
+];
+
+/**
  * Canonical JSON: object keys sorted recursively, arrays left in order.
  *
  * Array order is meaningful here (a line history is chronological, a market's outcomes are as quoted)
@@ -554,8 +623,23 @@ async function readLedger(dir) {
   return { records, findings };
 }
 
-/** Programmatic entry point, shared by the CLI and by `standards audit`. */
-export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyPath = OWN_POLICY, record: single } = {}) {
+/**
+ * Programmatic entry point, shared by the CLI and by `standards audit`.
+ *
+ * `policyPath` is REQUIRED and has no default. It used to default to this pack's own
+ * `betting-policy.yml`, which is how `validate <target>` came to judge someone else's decisions
+ * against our thresholds (ADR 0008). The command layer now refuses `--dir`/`--record` without
+ * `--policy`, but a default here would leave the same mistake one direct call away from being made
+ * again by a caller that never passes through `parseArgs`. A checker that will silently supply the
+ * numbers is not a general checker; the one legitimate case has its own door, `checkOwnExamples`.
+ */
+export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyPath, record: single } = {}) {
+  if (!policyPath) {
+    throw new Error(
+      "checkDecisions requires policyPath: records are judged against the policy they were decided under.\n" +
+        "  For this repository's own worked examples, call checkOwnExamples().",
+    );
+  }
   const schema = JSON.parse(await readFile(schemaPath, "utf8"));
   assertSchemaSupported(schema);
   // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own
@@ -577,7 +661,7 @@ export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyP
     }
   } else {
     const ledger = await readLedger(dir);
-    if (ledger === null) return { records: 0, findings: [], ledgerPresent: false };
+    if (ledger === null) return { records: 0, findings: [], ledgerPresent: false, suppliedRules: SUPPLIED_RULES };
     records = ledger.records;
     findings.push(...ledger.findings);
   }
@@ -587,7 +671,20 @@ export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyP
   }
   findings.push(...checkLedger(records));
 
-  return { records: records.length, findings, ledgerPresent: true };
+  // `suppliedRules` travels with the result so a caller deciding what this run established never has
+  // to reconstruct it. It is the same list whether the run found records or none, because what the
+  // checker OWNS does not depend on what it found — only on whether it ran.
+  return { records: records.length, findings, ledgerPresent: true, suppliedRules: SUPPLIED_RULES };
+}
+
+/**
+ * Check this repository's own worked examples against this repository's own betting policy.
+ *
+ * The self-checkout case, given its own name so the only legitimate use of `OWN_POLICY` cannot be
+ * mistaken for generic behaviour. Every other caller names the policy its records were decided under.
+ */
+export async function checkOwnExamples({ schemaPath = DEFAULT_SCHEMA } = {}) {
+  return checkDecisions({ dir: path.join(ROOT, "examples/ledger"), schemaPath, policyPath: OWN_POLICY });
 }
 
 function parseArgs(argv) {

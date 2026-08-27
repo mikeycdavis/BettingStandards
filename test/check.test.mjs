@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDecisions, checkRecord, canonicalize, decisionDigest } from "../scripts/decisions.mjs";
+import { checkDecisions, checkOwnExamples, checkRecord, canonicalize, decisionDigest } from "../scripts/decisions.mjs";
 import { loadBettingPolicy } from "../scripts/policy.mjs";
 import { validate, assertSchemaSupported } from "../scripts/jsonschema.mjs";
 
@@ -34,12 +34,17 @@ async function checkFixture(name) {
   return checkRecord(record, { policy, schema, file: `test/fixtures/ledger-negative/${name}` });
 }
 
+// These fixtures are this repository's own, and are judged against this repository's own thresholds.
+// Named rather than defaulted: `checkDecisions` no longer supplies a policy, so a test that omitted
+// one would be asking the checker to guess — the habit that produced ADR 0008.
+const OWN_POLICY = path.join(ROOT, "betting-policy.yml");
+
 const ids = (findings) => findings.map((f) => f.id);
 
 // --- The worked examples ---------------------------------------------------------------------------
 
 test("every worked example verifies with no errors", async () => {
-  const result = await checkDecisions({ dir: path.join(ROOT, "examples/ledger") });
+  const result = await checkOwnExamples();
   const errors = result.findings.filter((f) => f.severity === "error");
   assert.deepEqual(errors, [], `the shipped examples must re-derive cleanly:\n${JSON.stringify(errors, null, 2)}`);
   assert.equal(result.records, 5);
@@ -48,7 +53,7 @@ test("every worked example verifies with no errors", async () => {
 test("the examples include both a BET and PASSes with distinct reasons", async () => {
   // A ledger of BETs only cannot demonstrate that anything is ever declined, which is the behaviour
   // Standard 20 exists to make visible.
-  const result = await checkDecisions({ dir: path.join(ROOT, "examples/ledger") });
+  const result = await checkOwnExamples();
   assert.equal(result.records, 5);
 
   const files = ["DEC-20260809-001", "DEC-20260809-002", "DEC-20260809-003", "DEC-20260809-004", "DEC-20260808-005"];
@@ -65,7 +70,7 @@ test("the examples include both a BET and PASSes with distinct reasons", async (
 });
 
 test("an empty ledger reports that nothing was evaluated, and is not a pass", async () => {
-  const result = await checkDecisions({ dir: path.join(ROOT, "test/fixtures/empty-ledger") });
+  const result = await checkDecisions({ dir: path.join(ROOT, "test/fixtures/empty-ledger"), policyPath: OWN_POLICY });
   assert.equal(result.ledgerPresent, false, "a ledger that does not exist has not been checked");
   assert.deepEqual(result.findings, []);
 });
@@ -171,7 +176,7 @@ test("BOUNDARY: an edge landing exactly on the minimum is a valid BET", async ()
 // --- Cross-record ------------------------------------------------------------------------------------
 
 test("a sequence of unsupported stake increases after losses is caught", async () => {
-  const result = await checkDecisions({ dir: path.join(NEG, "martingale-seq") });
+  const result = await checkDecisions({ dir: path.join(NEG, "martingale-seq"), policyPath: OWN_POLICY });
   const found = result.findings.map((f) => f.id);
   assert.ok(found.includes("stake-escalation-after-loss"), `expected the first escalation to warn: ${found.join(", ")}`);
   assert.ok(found.includes("martingale-pattern"), `expected the repeated escalation to error: ${found.join(", ")}`);

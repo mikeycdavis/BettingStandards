@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 — 2026-08-16
+## 1.1.0 — 2026-08-25
 
 **Evaluator semantics corrected. Externally observable: a target that passed only because of this
 defect will now report what it actually is.** No normative change — see "Unchanged" below.
@@ -22,13 +22,31 @@ mutants each new guard was run against.
   this one: the record-derived rules are reported unevaluated, and the findings that already fail for
   a missing policy continue to say why.
 - `standards check <target>` binds the same path, and **exits 2** where a target declares no betting
-  policy. It previously produced a report derived from thresholds that project never declared. This is
-  the one strictly breaking change in this release.
+  policy. It previously produced a report derived from thresholds that project never declared.
 - `node scripts/decisions.mjs` accepts `--policy <path>`, and refuses `--dir` or `--record` without
   it. That entry point is handed a ledger directory and cannot find the repository root above it
   without guessing.
 - `checkDecisions` resolves its policy path once instead of defaulting twice — the recorded policy
   digest and the policy actually loaded can no longer be two different files.
+- **The decision checker declares the rules its execution establishes**, and `validate` removes that
+  set — no other — when the checker produces no record evidence. `gatherEvidence` previously matched
+  rule-id prefixes it maintained itself, and that approximation missed three rules: a target with a
+  full ledger and no betting policy reported `edge.threshold-respected`,
+  `edge.no-fabricated-edge` and `edge.no-probability-only-bets` as passed at full assurance, from
+  records nothing had read. Coverage on that specimen drops from 12 evaluated rules to 6, which is
+  what it always was. See the addenda to ADR 0008.
+
+### Changed — programmatic API
+
+- `checkDecisions({ dir, policyPath })` **requires `policyPath`** and throws without it. The CLI
+  refusal closed one door; a default on the function left the same mistake available to any caller
+  that does not go through `parseArgs`.
+- New `checkOwnExamples()` — this repository's own ledger against its own policy, the one case where
+  the pack may supply the numbers, given a name so it cannot be mistaken for generic behaviour.
+- New export `SUPPLIED_RULES`, and every `checkDecisions` result now carries `suppliedRules`.
+
+Both API changes are breaking for a direct importer. Nothing in this repository or in
+`standards-adapter.json` invoked either shape.
 
 ### Unchanged
 
@@ -41,8 +59,9 @@ manual-review, 41 evaluated, 13 fully machine-represented, `COMPLIANT` at 94.
 ### Why a minor rather than a patch
 
 A patch would say the observable behaviour is the same, and it is not: verdicts change for external
-targets, and `check` refuses inputs it used to accept. `v1.0.1` is left standing with the defect it
-shipped rather than amended, so the historical release stays reproducible.
+targets, `check` refuses inputs it used to accept, and two programmatic entry points changed shape.
+`v1.0.1` is left standing with the defect it shipped rather than amended, so the historical release
+stays reproducible.
 
 ## 1.0.1 — 2026-08-09
 

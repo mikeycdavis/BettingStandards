@@ -136,3 +136,68 @@ this pack, after the target's policy has already been located. This pack owns th
 next to a verdict is not a substitute for not producing the verdict. The rules in question ask whether
 the thresholds are defined; answering them from a file the project never wrote is answering a
 different question.
+
+## Addendum: the checker owns the set of rules it establishes
+
+Binding the target's policy created a second legitimate route to "no records were checked". Before,
+the only way to reach it was an absent or empty ledger; now a target with a full ledger and no
+`betting-policy.yml` skips decision evaluation entirely, because there is nothing to judge the
+records against. The route is correct. What it exposed was not.
+
+`gatherEvidence` had to know which rules lose their evidence when the checker does not run, and it
+answered with a **prefix match over rule ids** — `record.`, `decision.`, `odds.`, `edge.computed`,
+and seven more — maintained by hand in `standards.mjs`, one module away from the code that produces
+the findings. Two representations of one fact, kept in step by nothing.
+
+Measured on a target with the five worked examples and no betting policy:
+
+```text
+edge.threshold-respected        passed   evaluated   assurance: full
+edge.no-probability-only-bets   passed   evaluated   assurance: partial
+edge.no-fabricated-edge         passed   evaluated   assurance: full
+```
+
+Three rules reporting a clean bill of health from a ledger no code had opened — the same false green
+as the policy leak, arriving through a different door. The prefix list was survivable only while the
+sole way to reach zero records was an empty ledger, where there was nothing to be wrong about.
+
+**Decision. The checker declares the exact set of rules its execution establishes, and the evaluator
+removes that set — no other — when the checker does not produce record evidence.** `SUPPLIED_RULES`
+lives in `decisions.mjs` beside `FINDING_RULES`, travels back on every result as `suppliedRules`, and
+the prefix list is deleted rather than extended.
+
+Extending the list was the obvious repair and is the wrong one. A counterexample already existed
+proving that an enumeration maintained outside the authority that creates the findings cannot be kept
+true; a longer version of the same construction would be correct for exactly as long as nobody added
+a rule. This is the same reasoning that rejected the source-scanning guards earlier in this ADR: a
+check that can accept its own counterexample is not a check.
+
+Most of the declared rules pass **silently** — only the rules in `FINDING_RULES` can carry a finding,
+and the rest are established by the checker running to completion and disagreeing with nothing. That
+is precisely why they have to be named. A rule that passes by the absence of a finding is a rule that
+passes by default when no finding could have been produced at all. Six rules are deliberately outside
+the set, because their evidence was never in the records: five come from the betting policy's own
+contents and one from a document, and they survive a skipped ledger honestly.
+
+The mutation is the acceptance criterion. Removing one rule from the declaration must make the
+regression go red; a fixture-derived test would otherwise prove only that the three rules that fixture
+happened to expose are covered. The victim chosen — `record.decision-record-required` — is one the old
+prefix list *would* have caught, so the test discriminates the mechanism rather than the fixture:
+
+```text
+                                        prefix list (defect)    declaration (fixed)
+acceptance: no supplied rule claimed          RED                     green
+mutation: drop one declared rule              RED                     green
+```
+
+## Addendum: the residual default at the API boundary
+
+`parseArgs` refused `--dir`/`--record` without `--policy`, which closed the CLI. `checkDecisions`
+still defaulted `policyPath` to this pack's file, which left the same mistake one direct call away
+for any caller that never passes through the CLI — a future `standards` subcommand, a script, a
+sibling tool.
+
+`policyPath` is now **required** and has no default; the one legitimate use has its own named door,
+`checkOwnExamples()`. The distinction is that a caller must now say whose numbers it is using. This
+pack's policy is still reachable, but only by naming it, which is a greppable act rather than an
+omission.
