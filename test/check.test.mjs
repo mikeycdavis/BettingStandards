@@ -34,10 +34,12 @@ async function checkFixture(name) {
   return checkRecord(record, { policy, schema, file: `test/fixtures/ledger-negative/${name}` });
 }
 
-// These fixtures are this repository's own, and are judged against this repository's own thresholds.
-// Named rather than defaulted: `checkDecisions` no longer supplies a policy, so a test that omitted
-// one would be asking the checker to guess — the habit that produced ADR 0008.
+// These fixtures are this repository's own, and are judged against this repository's own thresholds
+// and by this repository's own declared framework version. Both are named rather than defaulted:
+// `checkDecisions` supplies neither, so a test that omitted one would be asking the checker to guess
+// — the habit that produced ADR 0008, and then ADR 0009.
 const OWN_POLICY = path.join(ROOT, "betting-policy.yml");
+const OWN_PROJECT_POLICY = path.join(ROOT, "project-policy.yml");
 
 const ids = (findings) => findings.map((f) => f.id);
 
@@ -70,7 +72,11 @@ test("the examples include both a BET and PASSes with distinct reasons", async (
 });
 
 test("an empty ledger reports that nothing was evaluated, and is not a pass", async () => {
-  const result = await checkDecisions({ dir: path.join(ROOT, "test/fixtures/empty-ledger"), policyPath: OWN_POLICY });
+  const result = await checkDecisions({
+    dir: path.join(ROOT, "test/fixtures/empty-ledger"),
+    policyPath: OWN_POLICY,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
   assert.equal(result.ledgerPresent, false, "a ledger that does not exist has not been checked");
   assert.deepEqual(result.findings, []);
 });
@@ -176,7 +182,11 @@ test("BOUNDARY: an edge landing exactly on the minimum is a valid BET", async ()
 // --- Cross-record ------------------------------------------------------------------------------------
 
 test("a sequence of unsupported stake increases after losses is caught", async () => {
-  const result = await checkDecisions({ dir: path.join(NEG, "martingale-seq"), policyPath: OWN_POLICY });
+  const result = await checkDecisions({
+    dir: path.join(NEG, "martingale-seq"),
+    policyPath: OWN_POLICY,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
   const found = result.findings.map((f) => f.id);
   assert.ok(found.includes("stake-escalation-after-loss"), `expected the first escalation to warn: ${found.join(", ")}`);
   assert.ok(found.includes("martingale-pattern"), `expected the repeated escalation to error: ${found.join(", ")}`);

@@ -239,10 +239,36 @@ test("audit and status on this repository are unaffected", async () => {
   }
 });
 
-test("removing the single guard makes all three commands leak at once", async () => {
-  // The mutation that discriminates PLACEMENT rather than presence. Three pasted copies of this check
-  // would satisfy every test above; deleting one of them would regress exactly one command. Deleting
-  // the one call site here must regress all three, which is only true if there is one call site.
+test("a target with no betting policy is still refused before its dispositions are computed", async () => {
+  // The case that belongs to THIS authority alone. With no betting policy there are no records to
+  // judge, so `checkDecisions` is never called and its guard never runs — yet `audit` and `status`
+  // would still emit findings, dispositions and a coverage figure derived from the project's policy
+  // and documents. That is project-level evidence, and it is evidence produced by a framework the
+  // project never declared.
+  const dir = makeTarget(declaring("1.0.0"), { bettingPolicy: "absent" });
+  for (const command of ["validate", "audit", "status"]) {
+    const { code, stdout } = await cli(command, dir, "--json");
+    assert.equal(code, EXIT_INVOCATION, `${command} must refuse before producing project-level evidence`);
+    assert.equal(stdout.trim(), "", `${command} must print nothing`);
+  }
+});
+
+test("removing this authority's guard leaks the case only it covers", async () => {
+  // The mutation that discriminates PLACEMENT rather than presence — and it has to be run against
+  // the fixture this guard uniquely covers.
+  //
+  // An earlier version of this test used a target WITH a betting policy and asserted all three
+  // commands leaked. It failed once `checkDecisions` grew a guard of its own, and the failure was
+  // correct: with a betting policy present, the commands reach the record authority, which refuses
+  // on its own account. That does not mean this guard is redundant. It means the two guards cover
+  // different ground, and a mutation has to name which ground it is testing.
+  //
+  // With NO betting policy, `checkDecisions` is never called. Everything the three commands would
+  // report comes from here, so removing this call site must leak all three — and does.
+  //
+  // This is the honest shape of the invariant: two authorities produce evidence in this pack, and
+  // each guards what it establishes. The mutation for the record authority lives in
+  // test/framework-authority.test.mjs and proves the same thing about the other half.
   const pack = mkdtempSync(path.join(os.tmpdir(), "bs-pack-ver-"));
   TEMPORARY.push(pack);
   cpSync(ROOT, pack, {
@@ -251,11 +277,11 @@ test("removing the single guard makes all three commands leak at once", async ()
   });
   const file = path.join(pack, "scripts/standards.mjs");
   const before = readFileSync(file, "utf8");
-  const guard = /^ *const refusal = await declaredVersionRefusal\(plan\);\r?\n *if \(refusal\) throw new WrongFramework\(refusal\);\r?\n/m;
+  const guard = /^ *const refusal = await declaredVersionRefusal\(plan\.policyPath\);\r?\n *if \(refusal\) throw new WrongFramework\(refusal\);\r?\n/m;
   assert.match(before, guard, "the guard must be one surgical call site for this mutation to mean anything");
   writeFileSync(file, before.replace(guard, ""), "utf8");
 
-  const dir = makeTarget(declaring("1.0.0"));
+  const dir = makeTarget(declaring("1.0.0"), { bettingPolicy: "absent" });
   const mutated = path.join(pack, "scripts/standards.mjs");
   const leaked = [];
   for (const command of ["validate", "audit", "status"]) {

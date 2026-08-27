@@ -32,6 +32,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { validate, assertSchemaSupported } from "./jsonschema.mjs";
 import { loadBettingPolicy } from "./policy.mjs";
+import { declaredVersionRefusal, WrongFramework, OWN_PROJECT_POLICY } from "./framework-version.mjs";
 import * as bm from "./betmath.mjs";
 
 const EXIT_OK = 0;
@@ -624,22 +625,47 @@ async function readLedger(dir) {
 }
 
 /**
- * Programmatic entry point, shared by the CLI and by `standards audit`.
+ * Programmatic entry point, and the authority that establishes record-level evidence.
  *
- * `policyPath` is REQUIRED and has no default. It used to default to this pack's own
- * `betting-policy.yml`, which is how `validate <target>` came to judge someone else's decisions
- * against our thresholds (ADR 0008). The command layer now refuses `--dir`/`--record` without
- * `--policy`, but a default here would leave the same mistake one direct call away from being made
- * again by a caller that never passes through `parseArgs`. A checker that will silently supply the
- * numbers is not a general checker; the one legitimate case has its own door, `checkOwnExamples`.
+ * TWO IDENTITIES, BOTH REQUIRED, NEITHER DEFAULTED. A record is judged against thresholds, and it is
+ * judged by a framework. This function will supply neither.
+ *
+ * `policyPath` came first. It used to default to this pack's own `betting-policy.yml`, which is how
+ * `validate <target>` came to judge someone else's decisions against our thresholds (ADR 0008).
+ *
+ * `projectPolicyPath` is the same lesson, learned again one layer over. The declared-version guard
+ * was placed in `runValidate`, then in `gatherEvidence`, and review found a way around it both
+ * times: `standards check <target>` and `node scripts/decisions.mjs --dir <ledger>` both reach this
+ * function without passing through either. Measured on the 2.0.0 candidate, both re-derived five
+ * records of a target declaring `1.0.0` under a 2.0.0 checkout and exited 0. Nothing evaluates a
+ * decision record without coming through here, so this is where the framework question is settled.
+ *
+ * THE GUARD IS FIRST, before the schema, the thresholds, or a single record is opened. Order is the
+ * property: a target that is wrong in two ways must fail for the framework rather than partly
+ * executing under the wrong one and reporting whatever it tripped over downstream.
+ *
+ * There is no self-checkout exemption, because there is no need for one. `checkOwnExamples()` names
+ * this repository's own `project-policy.yml` and passes the same check every external caller does.
+ * An exemption is a door; a fact is not.
  */
-export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyPath, record: single } = {}) {
+export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyPath, projectPolicyPath, record: single } = {}) {
   if (!policyPath) {
     throw new Error(
       "checkDecisions requires policyPath: records are judged against the policy they were decided under.\n" +
         "  For this repository's own worked examples, call checkOwnExamples().",
     );
   }
+  if (!projectPolicyPath) {
+    throw new Error(
+      "checkDecisions requires projectPolicyPath: records are judged BY a framework version, and the\n" +
+        "  project declares which one. Pass the target's project-policy.yml. Nothing is searched for:\n" +
+        "  a caller that cannot name one cannot establish the authority to evaluate.\n" +
+        "  For this repository's own worked examples, call checkOwnExamples().",
+    );
+  }
+  const refusal = await declaredVersionRefusal(projectPolicyPath);
+  if (refusal) throw new WrongFramework(refusal);
+
   const schema = JSON.parse(await readFile(schemaPath, "utf8"));
   assertSchemaSupported(schema);
   // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own
@@ -678,17 +704,25 @@ export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyP
 }
 
 /**
- * Check this repository's own worked examples against this repository's own betting policy.
+ * Check this repository's own worked examples against this repository's own policies.
  *
  * The self-checkout case, given its own name so the only legitimate use of `OWN_POLICY` cannot be
- * mistaken for generic behaviour. Every other caller names the policy its records were decided under.
+ * mistaken for generic behaviour. Every other caller names the policies its records were decided
+ * under; this one names ours. It is not exempt from anything — it satisfies the framework check
+ * against this repository's `project-policy.yml`, and would be refused if that file ever declared a
+ * version this checkout does not execute, which is a drift this repository's own gate should catch.
  */
 export async function checkOwnExamples({ schemaPath = DEFAULT_SCHEMA } = {}) {
-  return checkDecisions({ dir: path.join(ROOT, "examples/ledger"), schemaPath, policyPath: OWN_POLICY });
+  return checkDecisions({
+    dir: path.join(ROOT, "examples/ledger"),
+    schemaPath,
+    policyPath: OWN_POLICY,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
 }
 
 function parseArgs(argv) {
-  const options = { dir: null, record: null, policyPath: null, json: false, dryRun: false };
+  const options = { dir: null, record: null, policyPath: null, projectPolicyPath: null, json: false, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--json") options.json = true;
@@ -696,6 +730,7 @@ function parseArgs(argv) {
     else if (arg === "--record") options.record = argv[++i];
     else if (arg === "--dir") options.dir = argv[++i];
     else if (arg === "--policy") options.policyPath = argv[++i];
+    else if (arg === "--project-policy") options.projectPolicyPath = argv[++i];
     else if (arg.startsWith("--")) throw new Error(`unknown flag '${arg}'`);
     else if (options.dir === null) options.dir = arg;
     else throw new Error(`unexpected argument '${arg}'`);
@@ -714,10 +749,32 @@ function parseArgs(argv) {
     );
   }
 
-  // Explicit rather than left null, so the value that reaches `checkDecisions` is the value this
-  // function decided on. A null would silently take the parameter default instead, which is the
-  // second place a default could live.
+  // The second identity, refused for the same reason as the first and with less room to argue.
+  //
+  // A ledger directory is not a project root. This command is handed one, and the project policy
+  // that declares which framework may judge those records lives somewhere this command has no
+  // sanctioned way to find — walking upward until a `project-policy.yml` appears is exactly the
+  // search-that-succeeds-in-the-wrong-place ADR 0008 refuses, and it would silently attach a
+  // neighbouring project's declaration to these records.
+  //
+  // So the caller says it. `standards check <dir>` can join the filename onto the directory it was
+  // given, because it was given a project; this entry point was not, and will not pretend otherwise.
+  if ((options.dir || options.record) && !options.projectPolicyPath) {
+    throw new Error(
+      "records outside this repository must also name the framework version they are judged BY —\n" +
+        "  pass --project-policy <path to that project's project-policy.yml>.\n" +
+        "  A ledger directory is not a project root, and this command will not go looking for one:\n" +
+        "  a search that succeeds in the wrong place attaches someone else's declaration to these\n" +
+        "  records. If the records belong to a project you can point at, `standards check <dir>`\n" +
+        "  resolves both policies from that directory for you.",
+    );
+  }
+
+  // Explicit rather than left null, so the values that reach `checkDecisions` are the values this
+  // function decided on. A null would silently take a parameter default instead, which is the second
+  // place a default could live.
   options.policyPath ??= OWN_POLICY;
+  options.projectPolicyPath ??= OWN_PROJECT_POLICY;
 
   if (options.record && !options.dir) return options;
   options.dir ??= path.join(ROOT, "examples/ledger");

@@ -60,14 +60,15 @@ declared `standardVersion` against the version doing the evaluating.
 
 ### Breaking — a project is evaluated only by the version it declares
 
-`standards validate`, `standards audit` and `standards status` now **exit 2** unless the target's
-declared `standardVersion` is exactly the version of the executing checkout. A declaration that is
-absent, is not a version, or names a different release is a configuration error and produces no
-verdict, no findings, and no coverage figure.
+`standards validate`, `standards audit`, `standards status` and `standards check` now **exit 2**
+unless the target's declared `standardVersion` is exactly the version of the executing checkout. So
+does `node scripts/decisions.mjs` when pointed at an external ledger. A declaration that is absent,
+is not a version, or names a different release is a configuration error and produces no verdict, no
+findings, and no coverage figure.
 
-`standards plan` is unaffected. It previews what would be evaluated and evaluates nothing, so there
-is no judgement to attribute to a framework — and it is the one command that can still tell an
-adopter on an older version what this one would ask of them.
+`standards plan`, `init` and `explain` are unaffected. They produce no evidence, so there is no
+judgement to attribute to a framework — and `plan` in particular is the one command that can still
+tell an adopter on an older version what this one would ask of them.
 
 This is a long-standing schema guarantee finally being kept, not a new rule.
 `schemas/project-policy.schema.json` has described the field since `v1.0.0` as *"the framework
@@ -89,14 +90,21 @@ refuses everywhere else, wearing a version number instead of a rule id.
 Matching is **exact equality**. This pack has no compatibility range and no version-resolution
 mechanism, and one was deliberately not invented here.
 
-**The check guards evaluation, not reporting.** The first implementation put it in `validate` alone,
-reasoning that `validate` is the only command that stamps the declared version onto its output and so
-the only one that could mislabel a result. A second review found that too narrow, and it was right:
-the schema promises *"the framework version this project is evaluated against"*, not the version
-printed on a report. `audit` and `status` evaluate the same records through the same code, and
-`audit --strict` turns that evaluation into a gating failure — a wrong-framework judgement with a CI
-job attached rather than a label on a document. The refusal now lives in the shared evidence-gathering
-step that all three commands call, so it cannot be missed by a command that forgets to ask for it.
+**The check guards evaluation, not reporting, and it took three attempts to place it there.** The
+first implementation put it in `validate` alone, reasoning that `validate` is the only command that
+stamps the declared version onto its output. Review found `audit` and `status` evaluating the same
+records unguarded — and `audit --strict` returning that as a gating failure, which is a
+wrong-framework judgement with a CI job attached rather than a label on a document. The second put it
+in the shared evidence-gathering step those three commands call. Review found `standards check` and
+`node scripts/decisions.mjs` reaching the record checker without passing through it at all, and
+measured both re-deriving five records of a target declaring `1.0.0` under a 2.0.0 checkout, exit 0.
+
+Both placements were a list of callers wearing the costume of a boundary. The check now lives in the
+two authorities that actually produce evidence — the project-level one and the record-level one, each
+guarding what it establishes, both asking one shared implementation. The number of guards follows the
+number of places evidence is made, not the number of ways to ask for it, so a new command or flag
+cannot add a door. **ADR 0009** records the full topology, the two placements that failed, and why
+there is deliberately no self-checkout exemption.
 
 To adopt: read this entry, then set `standardVersion: "2.0.0"` in your `project-policy.yml`. The
 refusal names both versions and says exactly that.
@@ -105,8 +113,11 @@ refusal names both versions and says exactly that.
 
 - `standards check <target>` **exits 2** where a target declares no betting policy. It previously
   exited 0 and printed a report derived from this pack's thresholds.
-- `node scripts/decisions.mjs --dir` / `--record` **exits 2** without `--policy`. That entry point is
-  handed a ledger directory and cannot find a repository root above it without guessing.
+- `node scripts/decisions.mjs --dir` / `--record` **exits 2** without `--policy`, and also without
+  `--project-policy`. That entry point is handed a ledger directory and cannot find a repository root
+  above it without guessing — and a ledger cannot supply either of the two identities its records are
+  judged by: the thresholds they were decided under, and the framework version entitled to judge
+  them.
 - `standards validate <target>` — verdict, score, coverage and individual rule dispositions can all
   change for the same unmodified target, because the old values were derived from the wrong policy.
   A project that read `COMPLIANT` may now read `NON_COMPLIANT`, and coverage may fall sharply. **The
@@ -114,15 +125,17 @@ refusal names both versions and says exactly that.
 
 ### Breaking — programmatic
 
-- `checkDecisions({ dir, policyPath })` **requires `policyPath`** and throws without it. The CLI
-  refusal closes one door; a default on the function left the same mistake available to any caller
-  that does not go through `parseArgs`.
+- `checkDecisions({ dir, policyPath, projectPolicyPath })` **requires both `policyPath` and
+  `projectPolicyPath`** and throws without either. The CLI refusals close two doors; a default on the
+  function left the same mistake available to any caller that does not go through `parseArgs`.
+  `projectPolicyPath` takes a path, never a version string: a caller chooses *which* project policy
+  speaks for these records, never what it says.
 - Fails closed, everywhere: a missing target betting policy produces exit 2 or an unevaluated rule,
   never a verdict. Exit 2 is still never reported as non-compliance.
 
 ### Added
 
-- `--policy <path>` on `scripts/decisions.mjs`.
+- `--policy <path>` and `--project-policy <path>` on `scripts/decisions.mjs`.
 - `checkOwnExamples()` — this repository's own ledger against its own policy, the one case where the
   pack may supply the numbers, given a name so it cannot be mistaken for generic behaviour.
 - `SUPPLIED_RULES`, exported by the decision checker: the exact set of rules its execution
