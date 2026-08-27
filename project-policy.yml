@@ -17,7 +17,7 @@
 # exceptions is empty, and that is a position rather than an accident. A standards repository that
 # waives its own rules has answered the question it exists to ask.
 
-standardVersion: "1.0.0"
+standardVersion: "2.0.0"
 project: "BettingStandards"
 
 exceptions: []

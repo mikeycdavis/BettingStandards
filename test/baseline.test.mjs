@@ -37,18 +37,21 @@ const rules = [...catalog.rules.values()];
 /**
  * The published shape.
  *
- * `version` moved to 1.1.0 for the target-policy correction (ADR 0008), and it is the ONLY field that
- * moved — as it was the only one that moved for 1.0.1 before it. Every other number below is the one
- * v1.0.0 shipped with, still passing.
+ * `version` moved to 2.0.0 for the target-policy correction (ADR 0008), and it is the ONLY field
+ * that moved. Every other number below is the one v1.0.0 shipped with, still passing.
  *
- * That matters more for this release than for the last one. 1.0.1 was metadata and could claim "no
- * normative change" cheaply; 1.1.0 changes what `validate` does to an external target, so the claim
- * that the STANDARDS did not change needs to be mechanical rather than asserted. The evidence that
- * justifies moving `version` is the measurement in ADR 0008 and the suite in
- * test/target-policy.test.mjs, both in the same diff as this line.
+ * THE MAJOR IS THE POINT OF THIS ASSERTION, not an inflated minor. Three documented invocation
+ * surfaces now reject calls v1.0.0 accepted, and `checkDecisions({ dir })` throws where it returned
+ * a result. The standards themselves did not move — and because a major version is exactly where a
+ * reader would expect them to have moved, the claim that they did not has to be mechanical rather
+ * than asserted. That is what every line below this one is for.
+ *
+ * The lineage a consumer can actually resolve is v1.0.0 → v2.0.0. `v1.0.1` was tagged locally and
+ * never pushed, so no consumer ever had it; CHANGELOG.md says so rather than quietly renumbering
+ * around it.
  */
 const BASELINE = {
-  version: "1.1.0",
+  version: "2.0.0",
   standards: 21,
   rules: 51,
   required: 25,

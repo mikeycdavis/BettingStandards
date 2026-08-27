@@ -19,7 +19,7 @@
 # attempt is itself the violation. The only escape is that the rule genuinely has no subject in this
 # project, declared through applicability with a reason.
 
-standardVersion: "1.0.0"
+standardVersion: "2.0.0"
 project: "REPLACE-ME"
 
 exceptions: []

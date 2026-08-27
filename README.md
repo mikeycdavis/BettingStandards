@@ -199,4 +199,4 @@ quota, and a period with no wagers is a valid outcome.
 
 ## Version
 
-1.0.0 · zero dependencies · Node >= 18 · see [CHANGELOG.md](CHANGELOG.md)
+2.0.0 · zero dependencies · Node >= 18 · see [CHANGELOG.md](CHANGELOG.md)
