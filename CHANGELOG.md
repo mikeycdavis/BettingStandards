@@ -55,14 +55,19 @@ target with a full ledger and no betting policy still reported all seven as `pas
 was deleted rather than extended; ADR 0008 records why a longer enumeration outside the authority
 that creates the findings would have been correct only until the next rule was added.
 
-A third defect surfaced in review of this release and is fixed here: `validate` never checked a
-target's declared `standardVersion` against the version doing the evaluating.
+A third defect surfaced in review of this release and is fixed here: nothing checked a target's
+declared `standardVersion` against the version doing the evaluating.
 
 ### Breaking — a project is evaluated only by the version it declares
 
-`standards validate <target>` now **exits 2** unless the target's declared `standardVersion` is
-exactly the version of the executing checkout. A declaration that is absent, is not a version, or
-names a different release is a configuration error and produces no verdict.
+`standards validate`, `standards audit` and `standards status` now **exit 2** unless the target's
+declared `standardVersion` is exactly the version of the executing checkout. A declaration that is
+absent, is not a version, or names a different release is a configuration error and produces no
+verdict, no findings, and no coverage figure.
+
+`standards plan` is unaffected. It previews what would be evaluated and evaluates nothing, so there
+is no judgement to attribute to a framework — and it is the one command that can still tell an
+adopter on an older version what this one would ask of them.
 
 This is a long-standing schema guarantee finally being kept, not a new rule.
 `schemas/project-policy.schema.json` has described the field since `v1.0.0` as *"the framework
@@ -82,9 +87,16 @@ result produced by one framework version and labelled as another is the same fal
 refuses everywhere else, wearing a version number instead of a rule id.
 
 Matching is **exact equality**. This pack has no compatibility range and no version-resolution
-mechanism, and one was deliberately not invented here. `validate` is the only command affected,
-because it is the only one that stamps the declared version onto its output; `audit` and `status`
-emit no `standardVersion` and so mislabel nothing.
+mechanism, and one was deliberately not invented here.
+
+**The check guards evaluation, not reporting.** The first implementation put it in `validate` alone,
+reasoning that `validate` is the only command that stamps the declared version onto its output and so
+the only one that could mislabel a result. A second review found that too narrow, and it was right:
+the schema promises *"the framework version this project is evaluated against"*, not the version
+printed on a report. `audit` and `status` evaluate the same records through the same code, and
+`audit --strict` turns that evaluation into a gating failure — a wrong-framework judgement with a CI
+job attached rather than a label on a document. The refusal now lives in the shared evidence-gathering
+step that all three commands call, so it cannot be missed by a command that forgets to ask for it.
 
 To adopt: read this entry, then set `standardVersion: "2.0.0"` in your `project-policy.yml`. The
 refusal names both versions and says exactly that.

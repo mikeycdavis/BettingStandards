@@ -29,9 +29,11 @@
  *   > evaluator itself owns the exact set of rules whose dispositions it can establish.
  *
  * WHY A MUTATION TEST IS PART OF THE ACCEPTANCE. A regression built from one fixture proves only
- * that the three rules that fixture happened to expose are covered. The mutation below removes one
- * rule from the checker's declared set and requires the regression to go red, which is what
- * distinguishes "the mechanism is load-bearing" from "the list currently happens to be long enough".
+ * that the seven rules this fixture happens to expose are covered — and the corrected fixture above
+ * is itself the evidence that a fixture's reach is not the property's reach, since the first one
+ * exposed three of the same seven. The mutation below removes one rule from the checker's declared
+ * set and requires the regression to go red, which is what distinguishes "the mechanism is
+ * load-bearing" from "the list currently happens to be long enough".
  *
  * Fixtures live in temporary directories and the evaluator under test is a copy of the tree, for the
  * reason given at the head of target-policy.test.mjs: these tests mutate an evaluator, and

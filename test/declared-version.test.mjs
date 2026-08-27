@@ -23,11 +23,15 @@
  * semantic boundary. Shipping the major without the check would have knowingly published a release
  * that violates a long-standing schema guarantee.
  *
- * SCOPE, DELIBERATELY NARROW. Exact equality with the executing `VERSION`. No range, no compatibility
- * window, no "2.x accepts 2.y" — this pack has no such mechanism and inventing one during a fix is
- * how an unreviewed contract gets created. `validate` is also the only command touched, because it is
- * the only command that stamps the declared version onto its output; `audit` and `status` emit no
- * `standardVersion` and therefore mislabel nothing.
+ * SCOPE. Exact equality with the executing `VERSION`. No range, no compatibility window, no "2.x
+ * accepts 2.y" — this pack has no such mechanism and inventing one during a fix is how an unreviewed
+ * contract gets created.
+ *
+ * The refusal covers every command that evaluates: `validate`, `audit` and `status`. An earlier draft
+ * of this file said `validate` was "the only command touched, because it is the only command that
+ * stamps the declared version onto its output". That was wrong, and the second half of this file
+ * exists because review caught it — the schema's promise is about which framework evaluates the
+ * project, not about which report carries a label. See the note above the widened tests below.
  */
 
 import test from "node:test";
@@ -161,4 +165,111 @@ test("this repository still validates its own ledger under its own declared vers
   const out = JSON.parse(stdout);
   assert.equal(out.status, "COMPLIANT");
   assert.equal(out.standardVersion, PACK_VERSION, "the envelope's version is the one this pack executes");
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * Every command that evaluates, not just the one that labels.
+ *
+ * The first implementation of this check sat in `runValidate`, on the reasoning recorded above: only
+ * `validate` stamps `standardVersion` onto its output, so only `validate` could mislabel a result.
+ * Review found that reasoning too narrow. The schema does not promise "the version printed on the
+ * envelope"; it promises *"the framework version this project is evaluated against"*. `audit` and
+ * `status` both call `gatherEvidence` directly, so a project declaring 1.0.0 was still evaluated
+ * under 2.0.0 semantics through either of them — and `audit --strict` turns that evaluation into a
+ * gating failure, which is the same wrong-framework judgement with a CI job attached.
+ *
+ * The guard therefore belongs at the shared pre-evaluation boundary rather than in a list of
+ * commands. This is the same lesson as ADR 0008's rule-ownership addendum: an enumeration maintained
+ * outside the thing it describes is correct only until someone adds a member.
+ *
+ * `plan` is deliberately NOT guarded. It previews what *would* be evaluated from `buildPlan` and
+ * never calls `gatherEvidence`, so there is no evaluation to attribute to the wrong framework. The
+ * test below pins that, so the boundary cannot be widened by habit.
+ * ------------------------------------------------------------------------------------------- */
+
+async function cli(...argv) {
+  try {
+    const { stdout, stderr } = await run(process.execPath, [CLI, ...argv]);
+    return { code: 0, stdout, stderr };
+  } catch (error) {
+    return { code: error.code, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+  }
+}
+
+test("audit does not gather evidence for a project declaring another framework version", async () => {
+  const dir = makeTarget(declaring("1.0.0"));
+  const { code, stdout, stderr } = await cli("audit", dir, "--json");
+  assert.equal(code, EXIT_INVOCATION, "evidence gathered under the wrong framework is not evidence");
+  assert.equal(stdout.trim(), "", "no findings may be printed: they would describe a 2.x evaluation");
+  assert.match(stderr, /standardVersion 1\.0\.0/);
+});
+
+test("audit --strict reports a configuration error rather than a gating failure", async () => {
+  // The distinction this pack refuses to collapse anywhere else. `--strict` is what CI runs; exit 1
+  // from it says "this project's records are bad". A version mismatch says nothing about any record.
+  const dir = makeTarget(declaring("1.0.0"));
+  const { code } = await cli("audit", dir, "--strict", "--json");
+  assert.equal(code, EXIT_INVOCATION, "a wrong-framework invocation must never be reported as a failing audit");
+});
+
+test("status does not gather evidence for a project declaring another framework version", async () => {
+  const dir = makeTarget(declaring("1.0.0"));
+  const { code, stdout, stderr } = await cli("status", dir, "--json");
+  assert.equal(code, EXIT_INVOCATION);
+  assert.equal(stdout.trim(), "", "coverage and record counts are evaluation output like any other");
+  assert.match(stderr, /standardVersion 1\.0\.0/);
+});
+
+test("plan still previews a project declaring another framework version", async () => {
+  // The converse, and the reason it is asserted: a guard applied by habit rather than by evidence
+  // would take `plan` with it. `plan` reads the catalog and the project's applicability declarations
+  // and evaluates nothing, so refusing it would remove the one command that can tell an adopter on
+  // an older version what this one would ask of them.
+  const dir = makeTarget(declaring("1.0.0"));
+  const { code, stdout } = await cli("plan", dir, "--json");
+  assert.equal(code, 0, "plan does not evaluate, so there is no framework to attribute a judgement to");
+  assert.ok(JSON.parse(stdout).rules.length > 0, "and it must still produce the preview");
+});
+
+test("audit and status on this repository are unaffected", async () => {
+  // The self-checkout regression for the widened boundary, matching the one `validate` already has.
+  for (const command of ["audit", "status"]) {
+    const { code } = await cli(command, ".", "--json");
+    assert.equal(code, 0, `${command} must still run against a project declaring the executing version`);
+  }
+});
+
+test("removing the single guard makes all three commands leak at once", async () => {
+  // The mutation that discriminates PLACEMENT rather than presence. Three pasted copies of this check
+  // would satisfy every test above; deleting one of them would regress exactly one command. Deleting
+  // the one call site here must regress all three, which is only true if there is one call site.
+  const pack = mkdtempSync(path.join(os.tmpdir(), "bs-pack-ver-"));
+  TEMPORARY.push(pack);
+  cpSync(ROOT, pack, {
+    recursive: true,
+    filter: (src) => !/[\/](\.git|node_modules)$/.test(src) && !/[\/]artifacts[\/]local-ci$/.test(src),
+  });
+  const file = path.join(pack, "scripts/standards.mjs");
+  const before = readFileSync(file, "utf8");
+  const guard = /^ *const refusal = await declaredVersionRefusal\(plan\);\r?\n *if \(refusal\) throw new WrongFramework\(refusal\);\r?\n/m;
+  assert.match(before, guard, "the guard must be one surgical call site for this mutation to mean anything");
+  writeFileSync(file, before.replace(guard, ""), "utf8");
+
+  const dir = makeTarget(declaring("1.0.0"));
+  const mutated = path.join(pack, "scripts/standards.mjs");
+  const leaked = [];
+  for (const command of ["validate", "audit", "status"]) {
+    try {
+      await run(process.execPath, [mutated, command, dir, "--json"]);
+      leaked.push(command);
+    } catch (error) {
+      if (error.code !== EXIT_INVOCATION) leaked.push(command);
+    }
+  }
+  assert.deepEqual(
+    leaked.sort(),
+    ["audit", "status", "validate"],
+    "with the shared guard removed every evaluating command must evaluate under the wrong framework; " +
+      "any command still refusing is carrying its own copy of the check",
+  );
 });

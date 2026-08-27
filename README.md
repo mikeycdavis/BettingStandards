@@ -175,11 +175,12 @@ else. A project that has not declared its thresholds is not lent these: `check` 
 `validate` reports the rules that need them as unevaluated rather than passing them against numbers
 nobody wrote down. See [ADR 0008](artifacts/adr/0008-the-target-owns-the-policy-it-is-judged-against.md).
 
-A project is also only judged by the framework version it declares. `validate` exits 2 unless
-`standardVersion` in `project-policy.yml` is exactly the version of the checkout doing the
-evaluating — a result produced by one version and labelled as another describes a judgement that
-version never made. The refusal names both, and [CHANGELOG.md](CHANGELOG.md) says what changed before
-you raise the number.
+A project is also only judged by the framework version it declares. `validate`, `audit` and `status`
+each exit 2 unless `standardVersion` in `project-policy.yml` is exactly the version of the checkout
+doing the evaluating — a judgement produced by one version and reported by another describes a
+conclusion that version never reached. `plan` still works, because it previews and evaluates nothing.
+The refusal names both versions, and [CHANGELOG.md](CHANGELOG.md) says what changed before you raise
+the number.
 
 Plus the repository's own invariant checks: `npm run inventory`, `npm run fidelity`,
 `npm run policy`, `npm run diagrams`.

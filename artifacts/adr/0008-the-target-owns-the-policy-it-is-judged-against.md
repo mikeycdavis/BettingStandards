@@ -194,8 +194,10 @@ the set, because their evidence was never in the records: five come from the bet
 contents and one from a document, and they survive a skipped ledger honestly.
 
 The mutation is the acceptance criterion. Removing one rule from the declaration must make the
-regression go red; a fixture-derived test would otherwise prove only that the three rules that fixture
-happened to expose are covered. The victim chosen — `record.decision-record-required` — is one the old
+regression go red; a fixture-derived test would otherwise prove only that the seven rules this fixture
+happens to expose are covered — and the correction recorded above, where the first fixture reached
+only three of those seven, is the standing evidence that a fixture's reach is not the property's
+reach. The victim chosen — `record.decision-record-required` — is one the old
 prefix list *would* have caught, so the test discriminates the mechanism rather than the fixture:
 
 ```text

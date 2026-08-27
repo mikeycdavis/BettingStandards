@@ -274,8 +274,31 @@ async function attestationDigests(plan) {
   return digests;
 }
 
-/** Gather all evidence. Shared by audit and validate so they can never disagree about the facts. */
+/**
+ * Gather all evidence. Shared by audit, validate and status so they can never disagree about the
+ * facts — including the fact of which framework version is entitled to establish them.
+ *
+ * THE VERSION GUARD LIVES HERE, not in the commands. It was written in `runValidate` first, on the
+ * reasoning that only `validate` stamps `standardVersion` onto its output and so only `validate`
+ * could mislabel a result. Review found that too narrow. The schema does not promise "the version
+ * printed on the envelope"; it promises *"the framework version this project is evaluated against"*.
+ * `audit` and `status` evaluate too, and `audit --strict` turns that evaluation into a gating
+ * failure — a wrong-framework judgement with a CI job attached rather than a label on a report.
+ *
+ * Putting it in the function that does the evaluating rather than in a list of commands that do is
+ * the same correction as ADR 0008's rule-ownership addendum, one layer up: an enumeration kept
+ * outside the thing it describes is correct only until someone adds a member. A future command that
+ * evaluates gets this for free; `plan`, which previews from `buildPlan` and evaluates nothing, is
+ * untouched because there is no judgement to attribute to any framework.
+ *
+ * ORDER IS THE PROPERTY, not just the outcome. This is the first statement, so a target that is
+ * wrong in two ways fails for the version rather than partly executing under the wrong framework and
+ * then reporting whatever it tripped over downstream.
+ */
 async function gatherEvidence(plan) {
+  const refusal = await declaredVersionRefusal(plan);
+  if (refusal) throw new WrongFramework(refusal);
+
   const findings = [];
   let recordsChecked = 0;
   let ledgerPresent = false;
@@ -336,7 +359,22 @@ async function packVersion() {
 }
 
 /**
- * Why this project may not be handed a verdict by this checkout, or null if it may.
+ * Thrown when this checkout may not evaluate this project at all.
+ *
+ * It carries no exit code of its own: `main` already routes every thrown error to exit 2 with the
+ * command name prefixed, which is exactly the contract this needs. A distinct type rather than a
+ * bare Error so the reason is legible at the boundary and cannot be confused with an unreadable
+ * catalog or a parse failure.
+ */
+class WrongFramework extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "WrongFramework";
+  }
+}
+
+/**
+ * Why this project may not be evaluated by this checkout, or null if it may.
  *
  * Returns the message rather than writing it, so the decision and the reporting stay separable and a
  * test can assert what was said as well as what was returned. Every branch is exit 2 at the caller:
@@ -348,25 +386,27 @@ async function declaredVersionRefusal(plan) {
   const executing = await packVersion();
   const tail =
     "\nThis is a configuration error, not a verdict. A project may only be evaluated by the\n" +
-    "framework version it declares — see schemas/project-policy.schema.json.\n";
+    "framework version it declares — see schemas/project-policy.schema.json.";
 
   if (declared === undefined || declared === null) {
     return (
-      `standards validate: project-policy.yml in ${plan.dir} declares no standardVersion\n` +
-      `The schema requires it, and this checkout is ${executing}.` +
+      (plan.hasPolicy
+        ? `project-policy.yml in ${plan.dir} declares no standardVersion`
+        : `no readable project-policy.yml in ${plan.dir}, so nothing declares a standardVersion`) +
+      `\nThe schema requires it, and this checkout is ${executing}.` +
       tail
     );
   }
   if (typeof declared !== "string" || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(declared)) {
     return (
-      `standards validate: standardVersion '${declared}' in ${plan.dir} is not a version\n` +
+      `standardVersion '${declared}' in ${plan.dir} is not a version\n` +
       `It cannot be resolved to a framework release, and this checkout is ${executing}.` +
       tail
     );
   }
   if (declared !== executing) {
     return (
-      `standards validate: this project declares standardVersion ${declared}, and this checkout is ${executing}\n` +
+      `this project declares standardVersion ${declared}, and this checkout is ${executing}\n` +
       `Nothing was evaluated. A ${executing} result labelled ${declared} would describe a judgement that\n` +
       `${declared} never made. Check out ${declared} of this pack to evaluate against it, or update the\n` +
       `project's standardVersion to ${executing} once you have read what changed in CHANGELOG.md.` +
@@ -394,10 +434,11 @@ async function runValidate(plan, { json }) {
     return EXIT_INVOCATION;
   }
 
-  // The declared framework version, settled BEFORE anything is evaluated.
+  // The declared framework version is settled inside `gatherEvidence`, before anything is evaluated,
+  // and reaches this command as a thrown WrongFramework routed to exit 2 by `main`.
   //
-  // A project may receive a verdict only from the framework version it declares. That is not a new
-  // rule: schemas/project-policy.schema.json has described this field since v1.0.0 as "the framework
+  // A project may be evaluated only by the framework version it declares. That is not a new rule:
+  // schemas/project-policy.schema.json has described this field since v1.0.0 as "the framework
   // version this project is evaluated against", and said in the same sentence that an unresolvable
   // version is "a configuration error, not a compliance failure — exit 2, never a verdict". The
   // implementation read the field, echoed it into the envelope, and evaluated with whatever the
@@ -410,18 +451,8 @@ async function runValidate(plan, { json }) {
   // labelled as another is the same false green this pack refuses everywhere else, wearing a
   // version number instead of a rule id.
   //
-  // The ORDER is the property, not just the outcome. This runs before gatherEvidence so a target
-  // that is wrong in two ways fails for the version, rather than partly executing under the wrong
-  // framework and then reporting whatever it tripped over downstream.
-  //
   // Exact equality, deliberately. This pack has no compatibility range and no resolution mechanism,
   // and inventing one here would create an unreviewed contract in the middle of a fix.
-  const versionRefusal = await declaredVersionRefusal(plan);
-  if (versionRefusal) {
-    process.stderr.write(versionRefusal);
-    return EXIT_INVOCATION;
-  }
-
   const evidence = await gatherEvidence(plan);
   const today = new Date().toISOString().slice(0, 10);
   const verdict = evaluate({
