@@ -31,7 +31,12 @@ const policy = await loadBettingPolicy();
 async function checkFixture(name) {
   const file = path.join(NEG, name);
   const record = JSON.parse(await readFile(file, "utf8"));
-  return checkRecord(record, { policy, schema, file: `test/fixtures/ledger-negative/${name}` });
+  return await checkRecord(record, {
+    policy,
+    schema,
+    file: `test/fixtures/ledger-negative/${name}`,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
 }
 
 // These fixtures are this repository's own, and are judged against this repository's own thresholds

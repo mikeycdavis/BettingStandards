@@ -66,6 +66,10 @@ export async function packVersion() {
   return (await readFile(path.join(ROOT, "VERSION"), "utf8")).trim();
 }
 
+const TAIL =
+  "\nThis is a configuration error, not a verdict. A project may only be evaluated by the\n" +
+  "framework version it declares — see schemas/project-policy.schema.json.";
+
 /**
  * Why this checkout may not evaluate the project whose policy is at `projectPolicyPath`, or null if
  * it may.
@@ -81,9 +85,6 @@ export async function packVersion() {
  */
 export async function declaredVersionRefusal(projectPolicyPath) {
   const executing = await packVersion();
-  const tail =
-    "\nThis is a configuration error, not a verdict. A project may only be evaluated by the\n" +
-    "framework version it declares — see schemas/project-policy.schema.json.";
 
   let policy = null;
   let unreadable = null;
@@ -99,10 +100,40 @@ export async function declaredVersionRefusal(projectPolicyPath) {
         ? `${projectPolicyPath} could not be read as a project policy — ${unreadable}`
         : `no readable project-policy.yml at ${projectPolicyPath}, so nothing declares a standardVersion`) +
       `\nThe schema requires it, and this checkout is ${executing}.` +
-      tail
+      TAIL
     );
   }
 
+  return declaredVersionRefusalIn(policy, projectPolicyPath, executing);
+}
+
+/**
+ * The same rule, for an authority that has ALREADY been parsed.
+ *
+ * `evaluate()` is handed the project policy document itself — the declaration is in its arguments,
+ * and it was ignoring it. Re-reading a path there would be inventing provenance the caller already
+ * holds, so the document form exists rather than forcing a path. This is not the "accept a version
+ * string" antipattern the ADR rejects: what is passed is the DOCUMENT that carries the declaration,
+ * and this function reads `standardVersion` out of it itself. A caller still never gets to say what
+ * the version is — only which document speaks.
+ *
+ * `executing` is a parameter only so the path form above can avoid reading VERSION twice; it is read
+ * here when absent, never supplied by an outside caller for any other reason.
+ */
+export async function declaredVersionRefusalIn(policy, label, executing = null) {
+  executing ??= await packVersion();
+  const where = label ?? "the supplied project policy";
+
+  if (policy === null || typeof policy !== "object") {
+    return (
+      `${where} is not a project policy document, so nothing declares a standardVersion\n` +
+      `The schema requires it, and this checkout is ${executing}.` +
+      TAIL
+    );
+  }
+
+  const projectPolicyPath = where;
+  const tail = TAIL;
   const declared = policy.standardVersion;
   if (declared === undefined || declared === null) {
     return (
@@ -129,3 +160,4 @@ export async function declaredVersionRefusal(projectPolicyPath) {
   }
   return null;
 }
+

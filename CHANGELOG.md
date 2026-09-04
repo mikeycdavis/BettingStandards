@@ -150,12 +150,23 @@ refusal names both versions and says exactly that.
   fourth argument, `{ authorityPath }`, naming the project policy that carries the declaration; it
   defaults to the subject, because a project policy is its own declaration.
 - `checkLedger(records)` is now **`async checkLedger(records, { projectPolicyPath })`** and throws
-  without it. It is handed no policy and no schema — only the subject — yet it attributes this
-  checkout's rule ids to whatever records it is given. That is a third case the census's
-  resolve-or-be-handed line had no cell for, and it is the one this surface fell into: a function
-  that *embeds* the semantics rather than resolving or receiving them still judges the subject by
-  them. `checkDecisions` guards before reaching it, so the door this closes is the direct
-  programmatic import.
+  without it.
+- `checkRecord(record, { policy, schema, file })` is now **async and requires `projectPolicyPath`**.
+- `evaluate({ catalog, policy, ... })` is now **async and throws `WrongFramework`** when the policy
+  it is handed declares a version this checkout does not execute.
+
+  These three were classified as primitives on the ground that their caller supplies everything. The
+  caller supplies *inputs*, not *semantics*: the thirteen rule ids `checkRecord` attributes, the
+  ledger reasoning in `checkLedger`, and the verdict algebra in `evaluate` — STATUS, the exception
+  handling, the prohibition ranking, the scoring — are written into this pack. A betting policy and a
+  schema are thresholds and a shape, not a framework. `evaluate` was the sharpest case: it is handed
+  the project policy document that carries the declaration, and applied 2.0.0 semantics to a policy
+  declaring `1.0.0` without reading it.
+
+  `checkRecord` and `checkLedger` take a project-policy path they open, by the same provenance rule
+  as everything else. `evaluate` reads the declaration out of the document it was already given —
+  which is not the rejected "accept a version string" shape, because what it receives is the
+  document, and it extracts the version itself.
 - Fails closed, everywhere: a missing target betting policy produces exit 2 or an unevaluated rule,
   never a verdict. Exit 2 is still never reported as non-compliance.
 

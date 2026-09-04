@@ -7,6 +7,7 @@
  *   1. `runValidate`            missed `audit` and `status`
  *   2. `gatherEvidence`         missed `standards check` and `decisions.mjs`
  *   3. two authorities          missed `policy.mjs` / `checkPolicy()`
+ *   4. a derived census, two-case line   missed `checkLedger`, then `checkRecord` and `evaluate`
  *
  * Each time the inventory was assembled by reading the code and remembering what was in it, and each
  * time an external reviewer found a member of it that I had not listed. ADR 0009 asserted "exactly
@@ -29,20 +30,29 @@
  * cases, not two, and the fourth review found the pack in the one nobody had looked in:
  *
  *   RESOLVES  it opens this checkout's rule catalog or a normative schema on behalf of a subject it
- *             was pointed at. Carries the check. `checkDecisions`, `checkPolicy`, `gatherEvidence`.
- *   RECEIVES  the catalog, schema and policy all arrive from its caller. It resolves nothing, cannot
- *             be reached without a resolver having run first, and establishes nothing the caller had
- *             not already assembled. Primitive. `checkRecord`, `evaluate`, `envelope`.
- *   EMBEDS    it is handed only the SUBJECT. It opens nothing — but its rule ids and its reasoning
- *             are written into the function, so the subject is judged by this checkout's semantics
- *             anyway. Indistinguishable from RESOLVES for authority purposes, and therefore carries
- *             the check. `checkLedger`.
+ *             was pointed at. `checkDecisions`, `checkPolicy`, `gatherEvidence`.
+ *   EMBEDS    the rule ids it attributes, or the algebra it applies, are written into the function
+ *             itself. What its caller supplies is inputs, not semantics. `checkRecord`, `checkLedger`,
+ *             `evaluate`.
+ *   TRANSFORMS it neither opens nor embeds: it moves data between shapes and attributes nothing.
+ *             `canonicalize`, `decisionDigest`, `render`, `envelope`, `coverage`, all of `betmath`.
  *
- * An earlier version of this file stated the line as a dichotomy — resolve, or be handed — and
- * classified `checkLedger` as a primitive on the recorded ground that it "is handed an already-loaded
- * policy and schema". It is handed neither: its only parameter was the record list. The classification
- * was wrong because the GROUND was false, which is the same failure that produced the three previous
- * inventories. A reason recorded without being checked is not better than no reason.
+ * RESOLVES and EMBEDS both carry the check; only TRANSFORMS does not. The distinction that matters
+ * is not what a surface RECEIVES but whether it can establish a finding, disposition, score, coverage
+ * figure or verdict about a subject with no authority named.
+ *
+ * TWO WRONG LINES, BOTH RECORDED. The first was a dichotomy — resolve, or be handed — under which
+ * `checkLedger` was a primitive on the ground that it "is handed an already-loaded policy and schema".
+ * It is handed neither; its only parameter was the record list. The second kept the same "handed"
+ * ground for `checkRecord` and `evaluate`, and review found both: `checkRecord` receives thresholds
+ * and a shape while attributing thirteen rule ids of its own, and `evaluate` receives a catalog and
+ * a policy while applying a verdict algebra of its own — to the very document carrying the
+ * declaration it was ignoring. Its specimen was a 2.0.0 verdict for a policy declaring 1.0.0.
+ *
+ * The common defect in both is not the taxonomy: it is that "the caller supplied it" was accepted as
+ * a reason without asking what the caller supplied. A reason recorded without being checked is not
+ * better than no reason, so what is asserted below is behaviour — every surface classified as
+ * carrying the check must actually refuse without a named authority.
  */
 
 import test from "node:test";
@@ -123,7 +133,7 @@ const CLI_CENSUS = {
       "includes this suite, recursively. This is the one surface in the census classified by reading " +
       "rather than by running, and it is recorded here rather than left implicit.",
   },
-  "compliance.mjs": { expect: "inert", why: "library: the verdict function, over inputs a caller supplies." },
+  "compliance.mjs": { expect: "inert", why: "library: no command line. `evaluate` guards; see the export census." },
   "init.mjs": { expect: "inert", why: "library: bootstraps a new project, driven by `standards init`." },
   "jsonschema.mjs": { expect: "inert", why: "library: a validator." },
   "yaml.mjs": { expect: "inert", why: "library: a parser." },
@@ -170,18 +180,22 @@ const EXPORT_CENSUS = {
       "`coverage` and `resolve` compute over a catalog the caller already holds.",
   },
   "compliance.mjs": {
-    evaluate: "primitive",
+    evaluate: "resolver",
     envelope: "primitive",
     STATUS: "data",
     why:
-      "produces the verdict, but every input — catalog, policy, findings, evaluated set — is supplied by the caller. " +
-      "It resolves nothing and is unreachable without a resolver having run first.",
+      "`evaluate` was classified primitive on the ground that every input is supplied by the caller. The inputs are; " +
+      "the SEMANTICS are not. STATUS, the exception algebra, the prohibition ranking and the scoring live in this file, " +
+      "and the `policy` it is handed is the very document carrying the declaration it was ignoring — review's specimen " +
+      "was a 2.0.0 verdict returned for a policy declaring 1.0.0. It reads the declaration out of that document itself. " +
+      "`envelope` formats a verdict it is handed and establishes nothing; it stamps a standardVersion its caller " +
+      "supplies, which is a label rather than a judgement, and every path to it now comes through a guarded evaluate.",
   },
   "decisions.mjs": {
     checkDecisions: "resolver",
     checkOwnExamples: "resolver",
     checkLedger: "resolver",
-    checkRecord: "primitive",
+    checkRecord: "resolver",
     canonicalize: "primitive",
     decisionDigest: "primitive",
     render: "primitive",
@@ -189,10 +203,10 @@ const EXPORT_CENSUS = {
     SUPPLIED_RULES: "data",
     why:
       "`checkDecisions` resolves the record schema and reads the policy files it is pointed at: record-level authority. " +
-      "`checkRecord` IS handed an already-loaded policy and schema — verified below against its actual signature — and " +
-      "resolves nothing. `checkLedger` is handed neither: only the records. It opens nothing, but attributes this " +
-      "checkout's rule ids to whatever it is given, which is the EMBEDS case, so it takes a named project policy and " +
-      "guards on it exactly as checkDecisions does.",
+      "`checkRecord` and `checkLedger` both EMBED: the thirteen rule ids the first attributes and the ledger reasoning " +
+      "of the second are written into this file, so what the caller supplies — thresholds, a shape, a record list — is " +
+      "not the evaluation semantics. Both take a named project policy and guard on it. `canonicalize`/`decisionDigest`/" +
+      "`render` transform data and attribute nothing.",
   },
   "policy.mjs": {
     checkPolicy: "resolver",
@@ -407,18 +421,28 @@ test("ci-stages.mjs is inert by construction: it exports nothing and can be hand
  * demand an authority.
  * ------------------------------------------------------------------------------------------ */
 
-test("the recorded ground for each decisions.mjs classification matches the real signature", async () => {
+test("every surface classified as a resolver actually demands an authority", async () => {
+  // THE GROUND, CHECKED. `checkRecord` was classified a primitive on the recorded ground that its
+  // caller hands it policy and schema. It does take those — the prose was accurate about the
+  // signature and wrong about what it implied, which is why checking the signature would not have
+  // caught it. What matters is not what a surface RECEIVES but whether it can produce a finding
+  // about a subject with no authority named, so that is what is asserted here.
   const { checkRecord, checkLedger } = await import(pathToFileURL(path.join(SCRIPTS, "decisions.mjs")).href);
-
-  assert.match(
-    checkRecord.toString().slice(0, 200),
-    /\{[^}]*\bpolicy\b[^}]*\bschema\b[^}]*\}/s,
-    "checkRecord is classified primitive BECAUSE its caller hands it policy and schema — it must take them",
-  );
+  const { evaluate } = await import(pathToFileURL(path.join(SCRIPTS, "compliance.mjs")).href);
 
   await assert.rejects(
     () => checkLedger([], {}),
     /projectPolicyPath/,
-    "checkLedger is classified as embedding this checkout's semantics — it must demand a named authority",
+    "checkLedger embeds this checkout's rule ids — it must demand a named authority",
+  );
+  await assert.rejects(
+    () => checkRecord({ id: "x" }, { policy: {}, schema: {}, file: "x" }),
+    /projectPolicyPath/,
+    "checkRecord embeds this checkout's rule ids — a supplied betting policy is not an authority",
+  );
+  await assert.rejects(
+    () => evaluate({ catalog: {}, policy: { standardVersion: "1.0.0" }, findings: [], evaluated: [] }),
+    (error) => error.name === "WrongFramework",
+    "evaluate embeds the verdict algebra and is handed the declaration — it must read it",
   );
 });

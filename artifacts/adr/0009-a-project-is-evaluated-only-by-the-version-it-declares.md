@@ -50,7 +50,8 @@ locally convincing, defended in a commit message, covered by passing mutation te
 | 2 | `gatherEvidence` | That is where evaluation happens | It is where evaluation happens for three commands. `standards check <target>` and `node scripts/decisions.mjs --dir <ledger>` reach `checkDecisions` without passing through it. Both re-derived five records of a target declaring `1.0.0` under a 2.0.0 checkout, exit 0 |
 | 3 | `gatherEvidence` + `checkDecisions` | those are the authorities that produce evidence | **also wrong.** `policy.mjs` / `checkPolicy()` loads this checkout's rule catalog and applies `nonExemptible` to a policy document it is pointed at, reaching neither. An external policy declaring `1.0.0` produced `policy.non-exemptible-rule` and **exit 1** — a findings exit, about a subject that never authorized this framework |
 | 4 | The evidence authorities, enumerated mechanically | that is a derived census, not a recalled one | **incomplete.** The census stated its line as a dichotomy — a surface either RESOLVES this checkout's semantics for a subject, or is HANDED them by its caller. `checkLedger` is neither: it is handed only the records and opens nothing, yet attributes this checkout's rule ids to them. Verified emitting `record.decision-record-required` about an external ledger with no authority anywhere |
-| 5 | The same census, over a three-case line | Below | — |
+| 5 | The same census, over a three-case line | `checkLedger` was the EMBEDS case | **still too narrow.** Review named `checkRecord` and `evaluate` in the same finding, and both embed too: the first attributes thirteen rule ids of its own while receiving only thresholds and a shape, the second applies this pack's whole verdict algebra — and is handed the very document carrying the declaration. Specimen: a 2.0.0 verdict for a policy declaring `1.0.0` |
+| 6 | Every surface that can establish a finding, disposition, score, coverage figure or verdict | Below | — |
 
 Each fix removed one enumeration and left a smaller one behind. That is a shape, not a run of bad
 luck: **the guard was placed at the boundary that covered the callers already in mind, rather than at
@@ -127,26 +128,36 @@ needs the check when it interprets a subject it was handed under semantics the s
 supply. That happens three ways:
 
 - **RESOLVES** — it opens this checkout's rule catalog or a normative schema on behalf of a subject
-  it was pointed at. Carries the check: `gatherEvidence`, `checkDecisions`, `checkPolicy`.
-- **RECEIVES** — the catalog, the schema and the policy all arrive from its caller. It resolves
-  nothing, cannot be reached without a resolver having run first, and establishes nothing the caller
-  had not already assembled. Primitive: `checkRecord`, `evaluate`, `envelope`, `coverage`.
-- **EMBEDS** — it is handed only the *subject*. It opens nothing, but its rule ids and its reasoning
-  are written into the function, so the subject is judged by this checkout's semantics anyway.
-  Indistinguishable from RESOLVES for authority purposes, and therefore carries the check:
-  `checkLedger`.
+  it was pointed at: `gatherEvidence`, `checkDecisions`, `checkPolicy`.
+- **EMBEDS** — the rule ids it attributes, or the algebra it applies, are written into the function
+  itself. What its caller supplies is inputs, not semantics: `checkRecord`, `checkLedger`,
+  `evaluate`.
+- **TRANSFORMS** — it neither opens nor embeds. It moves data between shapes and attributes nothing:
+  `canonicalize`, `decisionDigest`, `render`, `envelope`, `coverage`, all of `betmath`.
 
-**The fourth review found this pack in the cell nobody had looked in.** The first version of this
-section stated the line as a dichotomy and listed `checkLedger` among the primitives, on the recorded
-ground that it "is handed an already-loaded policy and schema". It is handed neither — its only
-parameter was the record list. The classification was wrong because the *ground* was false, and
-nothing was checking the ground, so a reason written without looking survived a review that was
-looking straight at it.
+RESOLVES and EMBEDS both carry the check. Only TRANSFORMS does not.
 
-That is the same failure as the three before it, one level further in: the census stopped the
-inventory being recalled, but the *justifications inside it* were still prose. Two of them are now
-mechanically checked — the surface said to RECEIVE its semantics must actually accept them, and the
-surface said to EMBED them must actually demand an authority.
+**Two wrong lines were drawn here, and both are recorded rather than quietly replaced.**
+
+The first was a dichotomy — a surface either RESOLVES this checkout's semantics or is HANDED them —
+under which `checkLedger` was a primitive because it "is handed an already-loaded policy and schema".
+It is handed neither; its only parameter was the record list.
+
+The second kept the same "handed" ground for `checkRecord` and `evaluate`, and review found both in
+one finding. `checkRecord` receives thresholds and a shape while attributing thirteen rule ids of its
+own. `evaluate` receives a catalog and a policy while applying this pack's entire verdict algebra —
+STATUS, the exception semantics, the prohibition ranking, the scoring — and the policy it receives is
+the document carrying the declaration it was ignoring.
+
+**The common defect is not the taxonomy. It is that "the caller supplied it" was accepted as a reason
+without asking *what* the caller supplied.** A betting policy is thresholds. A schema is a shape.
+Neither is a framework, and neither authorizes anything. The census now asserts *behaviour* rather
+than checking prose: every surface classified as carrying the check must actually refuse when no
+authority is named, which is a claim that cannot be satisfied by a well-written reason.
+
+`evaluate` reads the declaration out of the document it was already given. That is not the rejected
+"accept a version string" shape: what it receives is the document, and it extracts the version
+itself — the same rule as everywhere else, with the path step already done by its caller.
 
 **The number of guards follows the number of places evidence is made, not the number of ways to ask
 for it.** That is the property that makes this an ownership rule rather than a third enumeration: a
@@ -248,6 +259,8 @@ delete checkPolicy's call site                the reviewer's exact specimen retu
                                               findings exit, not merely a changed exit code
 delete checkLedger's call site                a direct import judges an external ledger
                                               under this checkout's rule ids
+delete checkRecord's call site                a direct import judges an external record
+delete evaluate's call site                   a 2.0.0 verdict for a policy declaring 1.0.0
 add a module outside scripts/                 the census scope test fails
 give ci-stages.mjs an export                  its inert-by-construction test fails
 ```
@@ -294,6 +307,13 @@ leaves the method that produced it intact.
 `checkDecisions` already takes a path: a caller that extracts the declaration and passes the result
 has moved the reading of it outside the authority that acts on it. For a project policy the subject
 IS the declaration, so the function simply opens what it was already given.
+
+**A further mutation had to be narrowed rather than repaired.** With `evaluate` guarded,
+`validate` no longer leaks when `gatherEvidence`'s guard is deleted — it refuses downstream instead.
+`audit` and `status` still leak, because they report findings and dispositions without producing a
+verdict and so never reach `evaluate`. The mutation now asserts exactly that asymmetry, and asserts
+positively that `validate` still refuses. Narrowing an assertion is only honest when the reason is
+traced; this one was.
 
 **Leave `checkLedger` a primitive and correct only its recorded reason.** Tempting, because the
 classification would then merely be under-justified rather than wrong, and `checkDecisions` already

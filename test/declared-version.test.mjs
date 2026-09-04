@@ -292,10 +292,23 @@ test("removing this authority's guard leaks the case only it covers", async () =
       if (error.code !== EXIT_INVOCATION) leaked.push(command);
     }
   }
+  // WHY `validate` IS NOT IN THIS LIST ANY MORE. It was, and the change is a real one rather than a
+  // weakened assertion. `evaluate()` in compliance.mjs now carries the check itself — review found
+  // that it applies this checkout's verdict algebra to whatever project policy it is handed, and it
+  // is handed the declaration — so with `gatherEvidence`'s guard removed, `validate` still refuses
+  // downstream. `audit` and `status` never reach `evaluate`: they report findings and dispositions
+  // without producing a verdict, so this guard is the only thing standing between them and an
+  // evaluation under a framework the project never declared. That asymmetry IS what this mutation
+  // now establishes, and narrowing the list to match it is only honest because the reason was
+  // traced rather than assumed.
   assert.deepEqual(
     leaked.sort(),
-    ["audit", "status", "validate"],
-    "with the shared guard removed every evaluating command must evaluate under the wrong framework; " +
-      "any command still refusing is carrying its own copy of the check",
+    ["audit", "status"],
+    "with this guard removed, the commands that produce evidence WITHOUT a verdict must leak; they " +
+      "reach no other authority, so nothing else can be covering for this one",
+  );
+  assert.ok(
+    !leaked.includes("validate"),
+    "validate must still refuse here, from evaluate()'s own guard — if it leaks too, that guard is gone",
   );
 });

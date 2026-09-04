@@ -27,7 +27,7 @@ follow from its inputs.
 ## Quick start
 
 ```bash
-npm test                      # 242 tests, zero dependencies
+npm test                      # 246 tests, zero dependencies
 npm run check                 # re-derive every number in the worked examples
 npm run validate              # the verdict, with honest coverage
 node scripts/standards.mjs explain bankroll.no-martingale
@@ -147,7 +147,7 @@ standards/          21 numbered normative documents
 rules/              13 category files — the machine-readable catalog
 schemas/            decision record, betting policy, project policy
 scripts/            the CLI, the betting arithmetic, and the invariant checks
-test/               242 tests, including one known-negative per detectable prohibition
+test/               246 tests, including one known-negative per detectable prohibition
 examples/           5 worked decisions, 5 walkthroughs, 23 violation documents
 templates/          what an adopting project copies, including AGENTS.md
 design/             the concept model and the architecture/milestone plan

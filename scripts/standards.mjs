@@ -398,7 +398,7 @@ async function runValidate(plan, { json }) {
   // and inventing one here would create an unreviewed contract in the middle of a fix.
   const evidence = await gatherEvidence(plan);
   const today = new Date().toISOString().slice(0, 10);
-  const verdict = evaluate({
+  const verdict = await evaluate({
     catalog: plan.catalog,
     policy: plan.policy,
     findings: evidence.findings,

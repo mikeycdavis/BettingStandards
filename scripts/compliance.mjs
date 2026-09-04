@@ -20,6 +20,7 @@
  */
 
 import { resolve } from "./catalog.mjs";
+import { declaredVersionRefusalIn, WrongFramework } from "./framework-version.mjs";
 
 export const STATUS = {
   COMPLIANT: "COMPLIANT",
@@ -40,7 +41,16 @@ const RESULT = { passed: "passed", failed: "failed", warning: "warning", skipped
  *                  because nothing failed is the false green this whole framework exists to stop.
  * @param today     ISO date, for exception expiry
  */
-export function evaluate({ catalog, policy, findings, evaluated, today, digests }) {
+export async function evaluate({ catalog, policy, findings, evaluated, today, digests }) {
+  // THE DECLARATION IS IN THE ARGUMENTS. `policy` is the project policy document, so the version
+  // this subject authorizes is already here — and this function used to apply the 2.0.0 verdict
+  // algebra to it without looking. Review's specimen: a policy declaring `1.0.0` returning a 2.0.0
+  // verdict, exception semantics and prohibition handling included, none of which the caller
+  // supplied. The catalog and policy arriving from a caller do not make the verdict the caller's:
+  // STATUS, the exception algebra and the scoring are this checkout's, written into this file.
+  const refusal = await declaredVersionRefusalIn(policy, "the policy handed to evaluate()");
+  if (refusal) throw new WrongFramework(refusal);
+
   const declaredRules = policy?.rules ?? {};
   const applicability = policy?.applicability ?? {};
   const exceptions = Array.isArray(policy?.exceptions) ? policy.exceptions : [];

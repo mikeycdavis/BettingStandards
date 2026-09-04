@@ -74,11 +74,11 @@ test("DEFENCE 1: a policy waiving a prohibition is reported as a finding", async
   assert.match(hit.remediation, /not-applicable/, "the remediation must point at the one legitimate escape");
 });
 
-test("DEFENCE 1: the compliance engine rejects the waiver rather than honouring it", () => {
-  const verdict = evaluate({
+test("DEFENCE 1: the compliance engine rejects the waiver rather than honouring it", async () => {
+  const verdict = await evaluate({
     catalog,
     policy: {
-      standardVersion: "1.0.0",
+      standardVersion: PACK_VERSION,
       exceptions: [
         {
           rule: "bankroll.no-martingale",
@@ -245,10 +245,10 @@ test("DEFENCE 5: no manual-review rule is ever claimed as machine-evaluated", as
   }
 });
 
-test("DEFENCE 5: an unevaluated rule reports not-evaluated, never passing", () => {
-  const verdict = evaluate({
+test("DEFENCE 5: an unevaluated rule reports not-evaluated, never passing", async () => {
+  const verdict = await evaluate({
     catalog,
-    policy: { standardVersion: "1.0.0", exceptions: [] },
+    policy: { standardVersion: PACK_VERSION, exceptions: [] },
     findings: [],
     evaluated: [], // Nothing was examined at all.
     today: "2026-08-09",
@@ -261,11 +261,11 @@ test("DEFENCE 5: an unevaluated rule reports not-evaluated, never passing", () =
   assert.equal(verdict.score, null, "a score computed over nothing must be null, not 100");
 });
 
-test("DEFENCE 5: an attestation never overrides an automated finding", () => {
-  const verdict = evaluate({
+test("DEFENCE 5: an attestation never overrides an automated finding", async () => {
+  const verdict = await evaluate({
     catalog,
     policy: {
-      standardVersion: "1.0.0",
+      standardVersion: PACK_VERSION,
       attestations: {
         "bankroll.no-chasing-losses": {
           status: "approved",
@@ -289,10 +289,10 @@ test("DEFENCE 5: an attestation never overrides an automated finding", () => {
 
 // --- The verdict itself --------------------------------------------------------------------------------
 
-test("a violated prohibition produces BLOCKED_BY_INVARIANT, not a low score", () => {
-  const verdict = evaluate({
+test("a violated prohibition produces BLOCKED_BY_INVARIANT, not a low score", async () => {
+  const verdict = await evaluate({
     catalog,
-    policy: { standardVersion: "1.0.0", exceptions: [] },
+    policy: { standardVersion: PACK_VERSION, exceptions: [] },
     findings: [{ rule: "vig.no-ignored-vig", severity: "error", message: "edge computed from raw implied probabilities" }],
     evaluated: ["vig.no-ignored-vig"],
     today: "2026-08-09",
@@ -302,10 +302,10 @@ test("a violated prohibition produces BLOCKED_BY_INVARIANT, not a low score", ()
   assert.deepEqual(verdict.blockedBy, ["vig.no-ignored-vig"]);
 });
 
-test("a prohibition outranks an ordinary failure in the verdict", () => {
-  const verdict = evaluate({
+test("a prohibition outranks an ordinary failure in the verdict", async () => {
+  const verdict = await evaluate({
     catalog,
-    policy: { standardVersion: "1.0.0", exceptions: [] },
+    policy: { standardVersion: PACK_VERSION, exceptions: [] },
     findings: [
       { rule: "edge.threshold-respected", severity: "error", message: "a BET below the minimum edge" },
       { rule: "vig.no-ignored-vig", severity: "error", message: "vig ignored" },
@@ -319,10 +319,10 @@ test("a prohibition outranks an ordinary failure in the verdict", () => {
   assert.equal(verdict.status, STATUS.BLOCKED_BY_INVARIANT);
 });
 
-test("an ordinary required failure is NON_COMPLIANT, not blocked", () => {
-  const verdict = evaluate({
+test("an ordinary required failure is NON_COMPLIANT, not blocked", async () => {
+  const verdict = await evaluate({
     catalog,
-    policy: { standardVersion: "1.0.0", exceptions: [] },
+    policy: { standardVersion: PACK_VERSION, exceptions: [] },
     findings: [{ rule: "edge.threshold-respected", severity: "error", message: "a BET below the minimum edge" }],
     evaluated: ["edge.threshold-respected"],
     today: "2026-08-09",

@@ -252,3 +252,67 @@ test("checkLedger still produces its ledger findings once authority is establish
     "the guard must gate the finding, not replace it",
   );
 });
+
+/* --------------------------------------------------------------------------------------------
+ * The reviewer's wider finding: a betting policy and a schema are not the evaluation semantics.
+ *
+ * `checkLedger` above was one of three. Review named `checkRecord` and `evaluate` in the same
+ * breath, and it was right for the same reason I had been wrong: I classified both as primitives on
+ * the ground that their caller hands them everything. What the caller hands `checkRecord` is
+ * thresholds and a shape; the thirteen rule ids it attributes are written into the function. What
+ * the caller hands `evaluate` is a catalog and a policy; the verdict algebra — STATUS, the exception
+ * semantics, the scoring — is written into the function, and the policy it is handed is the very
+ * document that carries the declaration it was ignoring.
+ * ------------------------------------------------------------------------------------------ */
+
+test("evaluate refuses a policy declaring another framework version", async () => {
+  const { evaluate } = await import("../scripts/compliance.mjs");
+  const { loadCatalog } = await import("../scripts/catalog.mjs");
+  const catalog = await loadCatalog();
+
+  await assert.rejects(
+    () =>
+      evaluate({
+        catalog,
+        policy: { standardVersion: "1.0.0", exceptions: [] },
+        findings: [],
+        evaluated: [],
+        today: "2026-01-01",
+      }),
+    (error) => error.name === "WrongFramework" && /declares standardVersion 1\.0\.0/.test(error.message),
+    "a 2.0.0 verdict about a policy declaring 1.0.0 is the specimen this guard exists for",
+  );
+});
+
+test("evaluate still produces its verdict for a policy declaring this version", async () => {
+  const { evaluate } = await import("../scripts/compliance.mjs");
+  const { loadCatalog } = await import("../scripts/catalog.mjs");
+  const catalog = await loadCatalog();
+  const verdict = await evaluate({
+    catalog,
+    policy: { standardVersion: PACK_VERSION, exceptions: [] },
+    findings: [],
+    evaluated: [],
+    today: "2026-01-01",
+  });
+  assert.ok(verdict.status, "the guard must gate the verdict, not replace it");
+});
+
+test("checkRecord refuses a record judged under another framework version", async () => {
+  const { checkRecord } = await import("../scripts/decisions.mjs");
+  const stale = makePolicy("1.0.0", { except: false });
+  await assert.rejects(
+    () => checkRecord({ id: "DEC-1" }, { policy: {}, schema: {}, file: "x.json", projectPolicyPath: stale }),
+    (error) => error.name === "WrongFramework",
+    "the rule ids checkRecord attributes are this checkout's, whatever policy the caller supplied",
+  );
+});
+
+test("checkRecord requires a named project policy rather than assuming one", async () => {
+  const { checkRecord } = await import("../scripts/decisions.mjs");
+  await assert.rejects(
+    () => checkRecord({ id: "DEC-1" }, { policy: {}, schema: {}, file: "x.json" }),
+    /projectPolicyPath/,
+    "a record and a betting policy do not say which framework evaluates them",
+  );
+});

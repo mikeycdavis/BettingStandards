@@ -212,7 +212,23 @@ const minutesBetween = (later, earlier) => (Date.parse(later) - Date.parse(earli
  * than a crash. The one thing that does throw is a policy or schema that cannot be read, and that is
  * handled by the caller as exit 2.
  */
-export function checkRecord(record, { policy, policyDigest, schema, file }) {
+export async function checkRecord(record, { policy, policyDigest, schema, file, projectPolicyPath }) {
+  // A BETTING POLICY AND A SCHEMA ARE NOT THE EVALUATION SEMANTICS. This function was classified a
+  // primitive on the ground that its caller hands it everything — but what the caller hands it is
+  // thresholds and a shape. The thirteen rule ids it attributes, and the re-derivation that decides
+  // when to attribute them, are written into this file: it EMBEDS this checkout's semantics exactly
+  // as checkLedger does, and review found both together. So it takes the same authority, by the same
+  // provenance rule — a path it opens, nothing searched for.
+  if (!projectPolicyPath) {
+    throw new Error(
+      "checkRecord requires projectPolicyPath: the rule ids it attributes are this checkout's, so\n" +
+        "  the framework judging the record must be named. A record and a betting policy do not say\n" +
+        "  which framework evaluates them, and nothing is searched for.",
+    );
+  }
+  const refusal = await declaredVersionRefusal(projectPolicyPath);
+  if (refusal) throw new WrongFramework(refusal);
+
   const findings = [];
   const at = (id, message, extra) => findings.push(finding(id, message, { file, ...extra }));
 
@@ -717,7 +733,7 @@ export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyP
   }
 
   for (const { file, record } of records) {
-    findings.push(...checkRecord(record, { policy, policyDigest, schema, file }));
+    findings.push(...(await checkRecord(record, { policy, policyDigest, schema, file, projectPolicyPath })));
   }
   findings.push(...(await checkLedger(records, { projectPolicyPath })));
 
