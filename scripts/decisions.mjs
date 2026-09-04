@@ -544,8 +544,32 @@ export function checkRecord(record, { policy, policyDigest, schema, file }) {
  * people to ignore the finding. What is detectable is escalation the bettor's own maths does not
  * support, following losses — which is what chasing looks like from the outside. Intent is not
  * mechanically knowable, and the catalog says so.
+ *
+ * WHY THIS TAKES AN AUTHORITY. The census that guards this pack drew one line — does a surface
+ * RESOLVE this checkout's standards semantics for a subject it was pointed at, or was it HANDED
+ * them by its caller? This function is neither, and fell in the gap between: it is handed only the
+ * subject. No policy, no schema, no catalog. The rule ids it attributes and the ledger reasoning it
+ * applies are written into the function itself, so it interprets an external ledger under this
+ * checkout's semantics without resolving anything. A dichotomy over a domain with three cases has a
+ * cell nobody looked in, and this was in it.
+ *
+ * For authority purposes "embeds" is indistinguishable from "resolves": the subject is judged by
+ * this checkout's rules either way. `checkDecisions` already guards before it reaches here, so the
+ * door this closes is the direct programmatic import — which is a door, `scripts/` having no
+ * `exports` map to shut it. Same provenance rule as everywhere else: an explicit project-policy
+ * path this function opens, never a version string, and nothing is searched for.
  */
-export function checkLedger(records) {
+export async function checkLedger(records, { projectPolicyPath } = {}) {
+  if (!projectPolicyPath) {
+    throw new Error(
+      "checkLedger requires projectPolicyPath: it attributes this checkout's rule ids to the records\n" +
+        "  it is handed, so the framework judging them must be named. A record list is not a project\n" +
+        "  and does not imply one, and nothing is searched for.",
+    );
+  }
+  const refusal = await declaredVersionRefusal(projectPolicyPath);
+  if (refusal) throw new WrongFramework(refusal);
+
   const findings = [];
   const at = (id, message, extra = {}) => findings.push(finding(id, message, extra));
 
@@ -695,7 +719,7 @@ export async function checkDecisions({ dir, schemaPath = DEFAULT_SCHEMA, policyP
   for (const { file, record } of records) {
     findings.push(...checkRecord(record, { policy, policyDigest, schema, file }));
   }
-  findings.push(...checkLedger(records));
+  findings.push(...(await checkLedger(records, { projectPolicyPath })));
 
   // `suppliedRules` travels with the result so a caller deciding what this run established never has
   // to reconstruct it. It is the same list whether the run found records or none, because what the

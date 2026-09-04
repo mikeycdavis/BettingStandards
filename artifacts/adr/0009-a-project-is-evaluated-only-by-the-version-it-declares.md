@@ -49,7 +49,8 @@ locally convincing, defended in a commit message, covered by passing mutation te
 | 1 | `runValidate` | `validate` is the only command that stamps `standardVersion` onto its output, so it is the only one that can mislabel a result | `audit` and `status` call `gatherEvidence` directly. `audit --strict` returned a wrong-framework evaluation as a **gating failure** |
 | 2 | `gatherEvidence` | That is where evaluation happens | It is where evaluation happens for three commands. `standards check <target>` and `node scripts/decisions.mjs --dir <ledger>` reach `checkDecisions` without passing through it. Both re-derived five records of a target declaring `1.0.0` under a 2.0.0 checkout, exit 0 |
 | 3 | `gatherEvidence` + `checkDecisions` | those are the authorities that produce evidence | **also wrong.** `policy.mjs` / `checkPolicy()` loads this checkout's rule catalog and applies `nonExemptible` to a policy document it is pointed at, reaching neither. An external policy declaring `1.0.0` produced `policy.non-exemptible-rule` and **exit 1** — a findings exit, about a subject that never authorized this framework |
-| 4 | The evidence authorities, enumerated mechanically | Below | — |
+| 4 | The evidence authorities, enumerated mechanically | that is a derived census, not a recalled one | **incomplete.** The census stated its line as a dichotomy — a surface either RESOLVES this checkout's semantics for a subject, or is HANDED them by its caller. `checkLedger` is neither: it is handed only the records and opens nothing, yet attributes this checkout's rule ids to them. Verified emitting `record.decision-record-required` about an external ledger with no authority anywhere |
+| 5 | The same census, over a three-case line | Below | — |
 
 Each fix removed one enumeration and left a smaller one behind. That is a shape, not a run of bad
 luck: **the guard was placed at the boundary that covered the callers already in mind, rather than at
@@ -121,18 +122,43 @@ modules' own exports and fails when it meets a member nobody has classified.
 One implementation, in `scripts/framework-version.mjs`, asked by all three. No evaluator owns it, so
 they cannot drift into different ideas of what a version is.
 
-**The line, stated as a rule rather than a list.** A surface needs the check exactly when it
-*resolves* part of this checkout's standards semantics — the rule catalog, or a normative schema — on
-behalf of a subject it was pointed at. A surface handed the catalog, the schema and the policy by its
-caller resolves nothing: it cannot be reached without a resolver having run first, and it establishes
-nothing the caller had not already assembled. `checkRecord`, `checkLedger`, `evaluate`, `envelope`
-and `coverage` are primitives by that rule, and each is classified with its reason in the census.
+**The line, stated as a rule rather than a list — and it has three cases, not two.** A surface
+needs the check when it interprets a subject it was handed under semantics the subject did not
+supply. That happens three ways:
+
+- **RESOLVES** — it opens this checkout's rule catalog or a normative schema on behalf of a subject
+  it was pointed at. Carries the check: `gatherEvidence`, `checkDecisions`, `checkPolicy`.
+- **RECEIVES** — the catalog, the schema and the policy all arrive from its caller. It resolves
+  nothing, cannot be reached without a resolver having run first, and establishes nothing the caller
+  had not already assembled. Primitive: `checkRecord`, `evaluate`, `envelope`, `coverage`.
+- **EMBEDS** — it is handed only the *subject*. It opens nothing, but its rule ids and its reasoning
+  are written into the function, so the subject is judged by this checkout's semantics anyway.
+  Indistinguishable from RESOLVES for authority purposes, and therefore carries the check:
+  `checkLedger`.
+
+**The fourth review found this pack in the cell nobody had looked in.** The first version of this
+section stated the line as a dichotomy and listed `checkLedger` among the primitives, on the recorded
+ground that it "is handed an already-loaded policy and schema". It is handed neither — its only
+parameter was the record list. The classification was wrong because the *ground* was false, and
+nothing was checking the ground, so a reason written without looking survived a review that was
+looking straight at it.
+
+That is the same failure as the three before it, one level further in: the census stopped the
+inventory being recalled, but the *justifications inside it* were still prose. Two of them are now
+mechanically checked — the surface said to RECEIVE its semantics must actually accept them, and the
+surface said to EMBED them must actually demand an authority.
 
 **The number of guards follows the number of places evidence is made, not the number of ways to ask
 for it.** That is the property that makes this an ownership rule rather than a third enumeration: a
 new command, a new flag, or a new caller cannot add a guard site, because it cannot add a place where
 evidence is produced. What a new *module* can do is add one — which is what the derived census is
 for, and why it fails rather than passing when it meets a surface nobody has classified.
+
+**The census's own scope was the last thing still asserted.** It derived its contents by globbing
+`scripts/`, which is complete over the set it looks at — and the set it looks at was chosen by hand,
+which is the shape of every failure above, moved up one level. A module added at `lib/evaluator.mjs`
+would have produced evidence and been invisible to every test. The scope is derived now too: the
+repository is walked, and `scripts/` must be the only place executable code lives.
 
 ### The input is a path, never a version string
 
@@ -220,7 +246,19 @@ delete checkDecisions' call site              `standards check` + `decisions.mjs
 delete checkPolicy's call site                the reviewer's exact specimen returns —
                                               `policy.non-exemptible-rule` by name, at a
                                               findings exit, not merely a changed exit code
+delete checkLedger's call site                a direct import judges an external ledger
+                                              under this checkout's rule ids
+add a module outside scripts/                 the census scope test fails
+give ci-stages.mjs an export                  its inert-by-construction test fails
 ```
+
+**One mutation had to be repaired rather than added.** `checkLedger`'s guard is character-identical
+to `checkDecisions`', and the existing mutation removed the first match in the file — which became
+`checkLedger`'s. It also stopped meaning anything on a populated ledger, because the second guard
+answered it. Both halves are fixed: the pattern is anchored to `checkDecisions`' own refusal message,
+and the fixture is a target with no ledger directory, which is the one path that early-returns before
+`checkLedger` and so is the only path the first guard alone stands on. A mutation that keeps passing
+as the code around it changes shape is not necessarily still proving what it was written to prove.
 
 The last of those asserts the finding **by id** rather than by exit code, because a guard that
 stopped the run for some unrelated reason would satisfy a code-only assertion while leaving the
@@ -256,6 +294,14 @@ leaves the method that produced it intact.
 `checkDecisions` already takes a path: a caller that extracts the declaration and passes the result
 has moved the reading of it outside the authority that acts on it. For a project policy the subject
 IS the declaration, so the function simply opens what it was already given.
+
+**Leave `checkLedger` a primitive and correct only its recorded reason.** Tempting, because the
+classification would then merely be under-justified rather than wrong, and `checkDecisions` already
+guards the path that reaches it from any CLI. Rejected because `scripts/` has no `exports` map, so a
+deep import is a real door, and because the acceptance property is about interpretation rather than
+about how the interpretation was reached. A function that attributes this checkout's rule ids to
+records it was handed is interpreting a subject under semantics the subject never declared, whether
+it opened a catalog to do so or had the catalog written into it.
 
 **A `trusted: true` / `selfCheckout: true` option on `checkDecisions`.** An exemption flag is a door
 that reads as safe at every call site and is only wrong at one of them. Naming the pack's own

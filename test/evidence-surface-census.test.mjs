@@ -24,12 +24,25 @@
  *   > until the subject's declared `standardVersion` has been established as exactly the executing
  *   > version.
  *
- * THE LINE, stated as a rule rather than a list. A surface needs the authority check exactly when it
- * *resolves* part of this checkout's standards semantics — the rule catalog, or a normative schema —
- * on behalf of a subject it was pointed at. A surface that receives the catalog, the schema and the
- * policy from its caller resolves nothing: it cannot be reached without someone having already gone
- * through a resolver, and it establishes nothing the caller had not already assembled. Those are
- * primitives, and they are classified as such below with the reason recorded per export.
+ * THE LINE, stated as a rule rather than a list. A surface needs the authority check when it
+ * interprets a subject it was handed under semantics the subject did not supply. There are three
+ * cases, not two, and the fourth review found the pack in the one nobody had looked in:
+ *
+ *   RESOLVES  it opens this checkout's rule catalog or a normative schema on behalf of a subject it
+ *             was pointed at. Carries the check. `checkDecisions`, `checkPolicy`, `gatherEvidence`.
+ *   RECEIVES  the catalog, schema and policy all arrive from its caller. It resolves nothing, cannot
+ *             be reached without a resolver having run first, and establishes nothing the caller had
+ *             not already assembled. Primitive. `checkRecord`, `evaluate`, `envelope`.
+ *   EMBEDS    it is handed only the SUBJECT. It opens nothing — but its rule ids and its reasoning
+ *             are written into the function, so the subject is judged by this checkout's semantics
+ *             anyway. Indistinguishable from RESOLVES for authority purposes, and therefore carries
+ *             the check. `checkLedger`.
+ *
+ * An earlier version of this file stated the line as a dichotomy — resolve, or be handed — and
+ * classified `checkLedger` as a primitive on the recorded ground that it "is handed an already-loaded
+ * policy and schema". It is handed neither: its only parameter was the record list. The classification
+ * was wrong because the GROUND was false, which is the same failure that produced the three previous
+ * inventories. A reason recorded without being checked is not better than no reason.
  */
 
 import test from "node:test";
@@ -167,8 +180,8 @@ const EXPORT_CENSUS = {
   "decisions.mjs": {
     checkDecisions: "resolver",
     checkOwnExamples: "resolver",
+    checkLedger: "resolver",
     checkRecord: "primitive",
-    checkLedger: "primitive",
     canonicalize: "primitive",
     decisionDigest: "primitive",
     render: "primitive",
@@ -176,7 +189,10 @@ const EXPORT_CENSUS = {
     SUPPLIED_RULES: "data",
     why:
       "`checkDecisions` resolves the record schema and reads the policy files it is pointed at: record-level authority. " +
-      "`checkRecord`/`checkLedger` are handed an already-loaded policy and schema and resolve nothing.",
+      "`checkRecord` IS handed an already-loaded policy and schema — verified below against its actual signature — and " +
+      "resolves nothing. `checkLedger` is handed neither: only the records. It opens nothing, but attributes this " +
+      "checkout's rule ids to whatever it is given, which is the EMBEDS case, so it takes a named project policy and " +
+      "guards on it exactly as checkDecisions does.",
   },
   "policy.mjs": {
     checkPolicy: "resolver",
@@ -299,4 +315,110 @@ test("an external subject cannot influence any surface classified as inert", asy
     assert.equal(with_.code, without.code, `${file}: an external argument changed the exit code`);
     assert.equal(with_.stdout, without.stdout, `${file}: an external argument changed the output`);
   }
+});
+
+/* --------------------------------------------------------------------------------------------
+ * The census's own SCOPE, which was itself asserted.
+ *
+ * Everything above derives the census by globbing `scripts/`. That is complete over the set it
+ * looks at — and the set it looks at was chosen by hand, which is the exact shape of the three
+ * inventory failures this file exists to prevent, moved up one level. A module added at
+ * `lib/evaluator.mjs` would produce evidence and be invisible to every test here.
+ *
+ * So the scope is derived too: the repository is walked, and `scripts/` must be the only place
+ * executable JavaScript lives. Adding code anywhere else fails this test until either the code
+ * moves or this census is widened to cover it deliberately.
+ * ------------------------------------------------------------------------------------------ */
+
+test("scripts/ is the only place executable code lives, so globbing it is a complete census", () => {
+  const IGNORED = new Set([".git", "node_modules", "test", "scripts"]);
+  const strays = [];
+
+  const walk = (dir, rel) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (rel === "" && IGNORED.has(entry.name)) continue;
+      const child = path.join(dir, entry.name);
+      const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        walk(child, childRel);
+      } else if (/\.(mjs|cjs|js)$/.test(entry.name)) {
+        strays.push(childRel);
+      }
+    }
+  };
+  walk(ROOT, "");
+
+  assert.deepEqual(
+    strays.sort(),
+    [],
+    "executable code outside scripts/ is outside this census — classify it here, or move it in",
+  );
+});
+
+/* --------------------------------------------------------------------------------------------
+ * ci-stages.mjs: the one surface that cannot be run or imported by this suite, made mechanical.
+ *
+ * It has no `argv[1]` guard and runs the whole eight-stage pipeline — this suite included — on
+ * import, so neither the behavioural sweep nor the export sweep can touch it. That left its
+ * classification resting on prose, which is the thing this file was written to stop trusting.
+ *
+ * The disposition is instead established from two properties of the source that are checked here:
+ * it exports nothing at all, and it never indexes `argv` — it consults it only through boolean
+ * `.includes()` for two flags. A surface with no exports and no way to receive a path has no
+ * external subject to interpret, and that is a fact about the file rather than a recollection.
+ * ------------------------------------------------------------------------------------------ */
+
+test("ci-stages.mjs is inert by construction: it exports nothing and can be handed no subject", () => {
+  const source = readFileSync(path.join(SCRIPTS, "ci-stages.mjs"), "utf8");
+
+  assert.deepEqual(
+    source.match(/^\s*export\s/gm) ?? [],
+    [],
+    "an export would make it programmatically reachable, and this census cannot import it to check",
+  );
+
+  const argvUses = source.match(/process\.argv[^\n]*/g) ?? [];
+  assert.deepEqual(
+    argvUses,
+    ["process.argv.slice(2);"],
+    "argv must reach exactly one binding; any other use could carry a path in",
+  );
+
+  const consumed = source.match(/\bargs\b[^\n]*/g) ?? [];
+  for (const use of consumed) {
+    assert.match(
+      use,
+      /^args = process\.argv\.slice\(2\);$|args\.includes\("(--verbose|--json)"\)/,
+      `args is consumed here in a way that could carry an external path: ${use.trim()}`,
+    );
+  }
+});
+
+/* --------------------------------------------------------------------------------------------
+ * The GROUND of a primitive classification, checked rather than recorded.
+ *
+ * `checkLedger` was classified primitive on the recorded ground that it "is handed an already-loaded
+ * policy and schema". It was handed neither. The prose was wrong and nothing was checking the prose,
+ * so the classification survived a review that was looking straight at it.
+ *
+ * These two assertions pin the ground for the pair the mistake was made in: the surface said to
+ * RECEIVE its semantics must actually accept them, and the surface said to EMBED them must actually
+ * demand an authority.
+ * ------------------------------------------------------------------------------------------ */
+
+test("the recorded ground for each decisions.mjs classification matches the real signature", async () => {
+  const { checkRecord, checkLedger } = await import(pathToFileURL(path.join(SCRIPTS, "decisions.mjs")).href);
+
+  assert.match(
+    checkRecord.toString().slice(0, 200),
+    /\{[^}]*\bpolicy\b[^}]*\bschema\b[^}]*\}/s,
+    "checkRecord is classified primitive BECAUSE its caller hands it policy and schema — it must take them",
+  );
+
+  await assert.rejects(
+    () => checkLedger([], {}),
+    /projectPolicyPath/,
+    "checkLedger is classified as embedding this checkout's semantics — it must demand a named authority",
+  );
 });

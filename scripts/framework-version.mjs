@@ -6,11 +6,16 @@
  * unresolvable version is *"a configuration error, not a compliance failure — exit 2, never a
  * verdict"*. This module is that sentence, implemented once.
  *
- * WHY IT IS ITS OWN MODULE. The rule was placed three times before it was placed correctly — in
- * `runValidate`, then in `gatherEvidence`, then here — and each earlier placement was a list of
- * callers that happened to be in mind at the time. It lives apart from both evaluators now so that
- * neither owns it and both must ask it, and so the two authorities that produce evidence in this
- * pack cannot drift into two different ideas of what a version is.
+ * WHY IT IS ITS OWN MODULE. The rule was placed in `runValidate`, then in `gatherEvidence`, then
+ * here — and each earlier placement was a list of callers that happened to be in mind at the time.
+ * It lives apart from every evaluator so that none owns it and all must ask it, and so the surfaces
+ * that produce evidence in this pack cannot drift into different ideas of what a version is.
+ *
+ * HOW MANY ASK IT IS NOT WRITTEN DOWN HERE. An earlier version of this comment said "the two
+ * authorities", and there were three; the sentence was false when it was written, and it is exactly
+ * the kind of hand-maintained count that has been wrong at every previous step. The live inventory
+ * is derived in `test/evidence-surface-census.test.mjs`, which fails when it meets a surface nobody
+ * has classified.
  *
  * THE INPUT IS A PATH, NOT A VERSION STRING. A caller that extracted `standardVersion` itself and
  * handed over the result would put the reading of the declaration outside the authority that acts on

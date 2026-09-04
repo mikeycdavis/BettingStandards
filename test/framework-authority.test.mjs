@@ -255,11 +255,30 @@ test("removing the single guard reopens every external door at once", async () =
   });
   const file = path.join(pack, "scripts/decisions.mjs");
   const before = readFileSync(file, "utf8");
-  const guard = /^ *const refusal = await declaredVersionRefusal\(projectPolicyPath\);\r?\n *if \(refusal\) throw new WrongFramework\(refusal\);\r?\n/m;
-  assert.match(before, guard, "the guard must be one surgical call site for this mutation to mean anything");
-  writeFileSync(file, before.replace(guard, ""), "utf8");
+  // ANCHORED TO ONE FUNCTION, DELIBERATELY. `checkLedger` now carries a guard whose text is
+  // character-identical to this one, so an unanchored pattern removes whichever comes first in the
+  // file — which is `checkLedger`'s — and this mutation then proves nothing about `checkDecisions`.
+  // It failed exactly that way when the second guard landed. A mutation that keeps passing while the
+  // code around it changes shape is not necessarily still proving what it was written to prove, so
+  // the anchor is the function's own refusal message rather than the guard text alone.
+  const guard =
+    /(checkDecisions requires projectPolicyPath[\s\S]*?\}\r?\n)( *const refusal = await declaredVersionRefusal\(projectPolicyPath\);\r?\n *if \(refusal\) throw new WrongFramework\(refusal\);\r?\n)/;
+  const found = before.match(guard);
+  assert.ok(found, "the guard must be one surgical call site inside checkDecisions for this to mean anything");
+  writeFileSync(file, before.replace(guard, "$1"), "utf8");
+  const after = readFileSync(file, "utf8");
+  assert.ok(
+    after.includes("checkLedger requires projectPolicyPath"),
+    "only checkDecisions' guard may be removed here; checkLedger's has its own mutation below",
+  );
 
+  // THE FIXTURE IS THE OTHER HALF OF THE ANCHOR. `checkLedger` guards downstream on every path
+  // that reaches a record, so with a populated ledger this mutation is answered by the second guard
+  // and proves nothing about the first. The one path `checkDecisions` alone stands on is the early
+  // return for a ledger that is not there — which exits 0 saying NOTHING WAS EVALUATED, a result
+  // rather than a refusal, and therefore a leak when the subject declares another framework.
   const dir = makeExternalTarget("1.0.0");
+  rmSync(path.join(dir, "ledger"), { recursive: true, force: true });
   const reopened = [];
   const check = await cli(path.join(pack, "scripts/standards.mjs"), "check", dir);
   if (check.code !== EXIT_INVOCATION) reopened.push("standards check");

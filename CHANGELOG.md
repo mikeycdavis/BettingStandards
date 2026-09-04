@@ -115,7 +115,9 @@ inventory behind them was assembled by hand. The check now lives in the three au
 produce evidence, each guarding what it establishes, all asking one shared implementation — and the
 inventory itself is derived rather than asserted: `test/evidence-surface-census.test.mjs` builds it
 by globbing `scripts/` and importing every module, and fails when it meets a file or an export nobody
-has classified. **ADR 0009** records the full topology, the three placements that failed, why there is
+has classified. Its own *scope* is derived too — the repository is walked, and `scripts/` must be the
+only place executable code lives, so a module added elsewhere fails the census rather than sitting
+outside it. **ADR 0009** records the full topology, the three placements that failed, why there is
 deliberately no self-checkout exemption, and the one surface the census classifies by reading rather
 than by running.
 
@@ -147,6 +149,13 @@ refusal names both versions and says exactly that.
   findings when the subject's declared version is not the executing one. It accepts an optional
   fourth argument, `{ authorityPath }`, naming the project policy that carries the declaration; it
   defaults to the subject, because a project policy is its own declaration.
+- `checkLedger(records)` is now **`async checkLedger(records, { projectPolicyPath })`** and throws
+  without it. It is handed no policy and no schema — only the subject — yet it attributes this
+  checkout's rule ids to whatever records it is given. That is a third case the census's
+  resolve-or-be-handed line had no cell for, and it is the one this surface fell into: a function
+  that *embeds* the semantics rather than resolving or receiving them still judges the subject by
+  them. `checkDecisions` guards before reaching it, so the door this closes is the direct
+  programmatic import.
 - Fails closed, everywhere: a missing target betting policy produces exit 2 or an unevaluated rule,
   never a verdict. Exit 2 is still never reported as non-compliance.
 

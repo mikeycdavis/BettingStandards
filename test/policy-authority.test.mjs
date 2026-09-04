@@ -196,3 +196,59 @@ test("removing the policy authority's guard resurrects the exact specimen", asyn
   );
   assert.notEqual(mutated.code, EXIT_INVOCATION, "and the run must reach a findings exit rather than refusing");
 });
+
+/* --------------------------------------------------------------------------------------------
+ * The third classification: a surface that EMBEDS this checkout's semantics.
+ *
+ * The census drew one line — does the surface RESOLVE this checkout's semantics for a subject it
+ * was pointed at, or was it HANDED them by its caller? `checkLedger` is neither. It is handed only
+ * the subject: no policy, no schema, no catalog. Its rule ids and its ledger-level reasoning are
+ * written into the function itself, so it interprets an external subject under 2.0.0 semantics
+ * without ever resolving anything.
+ *
+ * A dichotomy over a domain with three cases has a cell nobody looked in, and that is where this
+ * one fell. For authority purposes "embeds" is indistinguishable from "resolves": the subject is
+ * judged by this checkout's rules either way. So it carries the check, by the same provenance rule
+ * as `checkDecisions` — an explicit project-policy path it opens itself, never a version string.
+ * ------------------------------------------------------------------------------------------ */
+
+test("checkLedger refuses a subject on another framework version", async () => {
+  const { checkLedger } = await import("../scripts/decisions.mjs");
+  const rec = (id) => ({ id, decidedAt: "2026-01-01", decision: { decision: "PASS" } });
+  const records = [
+    { file: "ext/a.json", record: rec("DEC-1") },
+    { file: "ext/b.json", record: rec("DEC-1") },
+  ];
+
+  const stale = makePolicy("1.0.0", { except: false });
+  await assert.rejects(
+    () => checkLedger(records, { projectPolicyPath: stale }),
+    (error) => error.name === "WrongFramework" && /declares standardVersion 1\.0\.0/.test(error.message),
+    "an external ledger must not be judged by rule ids this checkout supplies and the subject never declared",
+  );
+});
+
+test("checkLedger requires a named project policy rather than assuming one", async () => {
+  const { checkLedger } = await import("../scripts/decisions.mjs");
+  await assert.rejects(
+    () => checkLedger([], {}),
+    /projectPolicyPath/,
+    "nothing may be searched for: a record list is not a project and does not imply one",
+  );
+});
+
+test("checkLedger still produces its ledger findings once authority is established", async () => {
+  const { checkLedger } = await import("../scripts/decisions.mjs");
+  const rec = (id) => ({ id, decidedAt: "2026-01-01", decision: { decision: "PASS" } });
+  const findings = await checkLedger(
+    [
+      { file: "ext/a.json", record: rec("DEC-1") },
+      { file: "ext/b.json", record: rec("DEC-1") },
+    ],
+    { projectPolicyPath: path.join(ROOT, "project-policy.yml") },
+  );
+  assert.ok(
+    findings.some((f) => f.id === "duplicate-record-id"),
+    "the guard must gate the finding, not replace it",
+  );
+});
