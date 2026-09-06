@@ -137,6 +137,47 @@ supply. That happens three ways:
 
 RESOLVES and EMBEDS both carry the check. Only TRANSFORMS does not.
 
+### The TRANSFORMS boundary, examined rather than assumed
+
+TRANSFORMS was the line's third draft and the first not yet falsified, so it was reviewed on its own
+terms. Two surfaces sit in it that carry a subject's numbers to a user, and both recorded grounds
+turned out to be the same "the caller supplied it" form that failed the two drafts before.
+
+**`envelope`** stamps a `standardVersion` its caller hands it onto a verdict its caller hands it.
+Every judgement field — `status`, `score`, `summary`, `assurance`, `denominator`, `results` — is
+copied through; the only things it contributes are `schemaVersion` and the key layout. Handed a
+fabricated verdict it will format one, but so will an object literal, which is all it is. A guard
+here would refuse nobody who already holds the verdict, and a guard placed because a function is
+exported is exactly the reasoning this ADR exists to stop.
+
+**`coverage`** was recorded as computing "over a catalog the caller already holds". That was the
+incomplete half of the truth. Its other argument, `evaluated`, is subject-derived: `gatherEvidence`
+trims the set when a subject has no ledger or no checked records, and the effect is not marginal —
+measured on an adopting project, removing its ledger takes `evaluatedRules` from 41 to 6 and
+`fullyMachineRepresentedStandards` from 13 to 1. So `coverage` does report a figure *about a
+subject*. It stays exempt on the narrower and true ground that it is handed no finding, no policy and
+no disposition, and therefore judges nothing — it counts rule metadata against a list of ids.
+
+That correction propagated to the census's own criterion sentence, which had listed "coverage figure"
+among the triggers while exempting `coverage` three lines above — a contradiction that would have
+misled the next reader the same way the last two false grounds did. The line is between *reporting a
+number about a subject* and *judging one*.
+
+**No code changed, because no bypass exists.** What was missing was that the exemption rested on
+prose. The property that actually holds is reachability — neither surface is handed anything it could
+establish authority from, so what must be true is that no user-visible transform output escapes for a
+subject whose authority was never established. That is now asserted behaviourally in both directions:
+absent for a subject declaring `1.0.0` and for one declaring nothing, present for one declaring the
+executing version. The converse arm is not decoration — an absence assertion is satisfied by a pack
+that emits nothing, by a refusal for an unrelated reason, or by a regex that matches nothing.
+
+Reproduced red before the assertion was written: with the guards in `standards.mjs`, `decisions.mjs`,
+`policy.mjs` and `compliance.mjs` removed, `validate` on a subject declaring `1.0.0` returns an
+envelope reading `"standardVersion": "1.0.0"` beside a 2.0.0-derived `NON_COMPLIANT` at score 96 and a
+coverage figure of 41 — an unverified version claim attached to this checkout's own judgement. The
+mutation must remove every one of those guards to surface it, which is itself the finding that the
+transforms are protected by their callers rather than by themselves.
+
 **Two wrong lines were drawn here, and both are recorded rather than quietly replaced.**
 
 The first was a dichotomy — a surface either RESOLVES this checkout's semantics or is HANDED them —

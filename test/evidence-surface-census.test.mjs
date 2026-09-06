@@ -38,8 +38,16 @@
  *             `canonicalize`, `decisionDigest`, `render`, `envelope`, `coverage`, all of `betmath`.
  *
  * RESOLVES and EMBEDS both carry the check; only TRANSFORMS does not. The distinction that matters
- * is not what a surface RECEIVES but whether it can establish a finding, disposition, score, coverage
- * figure or verdict about a subject with no authority named.
+ * is not what a surface RECEIVES but whether it can establish a finding, disposition, score or
+ * verdict about a subject with no authority named.
+ *
+ * REPORTING A NUMBER ABOUT A SUBJECT IS NOT JUDGING ONE, and the line runs between those rather than
+ * around the word "coverage". `coverage` does report a figure about a subject — its `evaluated`
+ * argument is subject-derived, and removing an adopting project's ledger takes `evaluatedRules` from
+ * 41 to 6 — but it never sees a finding, a policy or a disposition, so it establishes nothing about
+ * the subject's conduct. An earlier draft of this sentence listed "coverage figure" among the
+ * triggers, which made the criterion contradict the classification three lines above it. The
+ * exemption is no longer carried by this sentence either way: it is checked at the foot of the file.
  *
  * TWO WRONG LINES, BOTH RECORDED. The first was a dichotomy — resolve, or be handed — under which
  * `checkLedger` was a primitive on the ground that it "is handed an already-loaded policy and schema".
@@ -58,7 +66,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -177,7 +185,11 @@ const EXPORT_CENSUS = {
     SEVERITIES: "data",
     why:
       "`loadCatalog` resolves this checkout's semantics but is handed no subject, so it cannot attribute anything to one. " +
-      "`coverage` and `resolve` compute over a catalog the caller already holds.",
+      "`resolve` computes over a catalog the caller already holds. `coverage` was recorded the same way, which was the " +
+      "incomplete half of the truth: it also takes an `evaluated` list that IS subject-derived, and the figure moves 41 " +
+      "to 6 with the subject's ledger. It stays exempt on the narrower ground that it is handed no finding, policy or " +
+      "disposition and so judges nothing — and that ground is not left as prose. See the reachability check at the foot " +
+      "of this file, where its output is asserted absent for an unauthorized subject and present for an authorized one.",
   },
   "compliance.mjs": {
     evaluate: "resolver",
@@ -189,7 +201,9 @@ const EXPORT_CENSUS = {
       "and the `policy` it is handed is the very document carrying the declaration it was ignoring — review's specimen " +
       "was a 2.0.0 verdict returned for a policy declaring 1.0.0. It reads the declaration out of that document itself. " +
       "`envelope` formats a verdict it is handed and establishes nothing; it stamps a standardVersion its caller " +
-      "supplies, which is a label rather than a judgement, and every path to it now comes through a guarded evaluate.",
+      "supplies, which is a label rather than a judgement, and every path to it comes through a guarded evaluate. " +
+      "That last clause is the one that carries the exemption, so it is checked rather than asserted at the foot of " +
+      "this file: with the guards removed, the envelope stamps 1.0.0 onto a 2.0.0 verdict at score 96.",
   },
   "decisions.mjs": {
     checkDecisions: "resolver",
@@ -445,4 +459,106 @@ test("every surface classified as a resolver actually demands an authority", asy
     (error) => error.name === "WrongFramework",
     "evaluate embeds the verdict algebra and is handed the declaration — it must read it",
   );
+});
+
+/* --------------------------------------------------------------------------------------------
+ * THE TRANSFORMS GROUND, CHECKED THE SAME WAY THE OTHERS ARE.
+ *
+ * `envelope` and `coverage` are the two surfaces classified TRANSFORMS that carry a subject's
+ * numbers to a user. Until now their exemption rested on prose, and prose is what failed twice
+ * here — "the caller supplied it" was accepted as a ground without asking what the caller supplied.
+ * The claim is checkable, so it is checked.
+ *
+ * WHAT THEY ACTUALLY DO, traced rather than assumed:
+ *
+ *   `envelope` stamps a `standardVersion` its caller hands it onto a verdict its caller hands it.
+ *   It derives nothing: `status`, `score`, `summary`, `assurance`, `denominator` and `results` are
+ *   copied through. Handed a fabricated verdict it will happily format one — but so will an object
+ *   literal, which is all it is. A guard here would stop nobody who already holds the verdict.
+ *
+ *   `coverage` is NOT the subject-independent constant its recorded ground implied. Its `evaluated`
+ *   argument is subject-derived, and the trim in `gatherEvidence` moves the figure hard: measured on
+ *   an adopting project, removing its ledger takes `evaluatedRules` from 41 to 6 and
+ *   `fullyMachineRepresentedStandards` from 13 to 1. So it does report a number ABOUT a subject.
+ *   What it does not do is judge one: it never sees a finding, a disposition or a policy, only rule
+ *   metadata and a list of ids.
+ *
+ * SO THE PROPERTY IS REACHABILITY, NOT REFUSAL. Neither surface can establish authority — neither is
+ * handed anything to establish it from — and adding a guard to either would be a guard placed
+ * because a function is exported rather than because evidence is made there. What must hold instead
+ * is that no user-visible transform output escapes for a subject whose authority was never
+ * established. That is asserted below in both directions, because an assertion that output is absent
+ * passes just as well when the output never appears at all.
+ *
+ * Reproduced red before it was written: with the guards in `standards.mjs`, `decisions.mjs`,
+ * `policy.mjs` and `compliance.mjs` removed, `validate` on a subject declaring 1.0.0 returns an
+ * envelope reading `"standardVersion": "1.0.0"` beside a 2.0.0-derived NON_COMPLIANT at score 96 and
+ * a coverage figure of 41 — an unverified version claim attached to this checkout's own judgement.
+ * ------------------------------------------------------------------------------------------ */
+
+/** A complete adopting project, correct in every respect except the declaration line under test. */
+function makeSubject(policyBody) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bs-transforms-"));
+  TEMPORARY.push(dir);
+  mkdirSync(path.join(dir, "ledger"));
+  mkdirSync(path.join(dir, "standards"));
+  cpSync(path.join(ROOT, "examples/ledger"), path.join(dir, "ledger"), { recursive: true });
+  cpSync(
+    path.join(ROOT, "standards/19-evaluation-of-the-betting-process.md"),
+    path.join(dir, "standards/19-evaluation-of-the-betting-process.md"),
+  );
+  cpSync(path.join(ROOT, "betting-policy.yml"), path.join(dir, "betting-policy.yml"));
+  writeFileSync(path.join(dir, "project-policy.yml"), policyBody, "utf8");
+  return dir;
+}
+
+/** Anything only this checkout could have computed about the subject. */
+const TRANSFORM_OUTPUT = /frameworkCoverage|cataloguedRules|evaluatedRules|fullyMachineRepresentedStandards|"score"|"standardVersion"/;
+
+const CLI = path.join(SCRIPTS, "standards.mjs");
+
+test("no transform output reaches a subject whose declared version was never established", async () => {
+  const unauthorized = [
+    ["declaring another framework version", `standardVersion: "1.0.0"\nproject: "stale"\nexceptions: []\n`],
+    ["declaring no version at all", 'project: "unversioned"\nexceptions: []\n'],
+  ];
+
+  for (const [label, body] of unauthorized) {
+    const dir = makeSubject(body);
+    for (const command of ["validate", "status"]) {
+      const result = await cli(CLI, command, dir, "--json");
+      assert.equal(
+        result.code,
+        EXIT_INVOCATION,
+        `${command} on a subject ${label} must refuse as a configuration error`,
+      );
+      assert.doesNotMatch(
+        result.stdout,
+        TRANSFORM_OUTPUT,
+        `${command} on a subject ${label} emitted a figure this checkout computed about it — a ` +
+          "transform was reached before the subject's authority was established",
+      );
+    }
+  }
+});
+
+test("the same transform output is present for a subject that did establish its authority", async () => {
+  // THE CONVERSE, and the reason it is here: the assertion above is that something is ABSENT, and
+  // absence is satisfied by a pack that emits nothing at all, by a refusal for an unrelated reason,
+  // or by a regex that matches nothing. This is the control that distinguishes a guard that works
+  // from a test that cannot fail.
+  const dir = makeSubject(`standardVersion: "${PACK_VERSION}"\nproject: "current"\nexceptions: []\n`);
+
+  const validated = await cli(CLI, "validate", dir, "--json");
+  assert.notEqual(validated.code, EXIT_INVOCATION, "the current subject must be evaluated, not refused");
+  assert.match(validated.stdout, TRANSFORM_OUTPUT, "`envelope` must carry its figures for an authorized subject");
+  assert.equal(
+    JSON.parse(validated.stdout).standardVersion,
+    PACK_VERSION,
+    "and the version it stamps can only be the executing one, because every path to it is guarded",
+  );
+
+  const status = await cli(CLI, "status", dir, "--json");
+  assert.equal(status.code, 0, "status on the current subject must succeed");
+  assert.match(status.stdout, /evaluatedRules/, "`coverage` must report its figure for an authorized subject");
 });

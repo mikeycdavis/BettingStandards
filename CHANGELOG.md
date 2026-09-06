@@ -167,6 +167,15 @@ refusal names both versions and says exactly that.
   as everything else. `evaluate` reads the declaration out of the document it was already given —
   which is not the rejected "accept a version string" shape, because what it receives is the
   document, and it extracts the version itself.
+
+  `envelope` and `coverage` were examined in the same pass and are **unchanged** — deliberately, and
+  with the reasoning recorded rather than the outcome. `envelope` copies every judgement field
+  through and contributes only a `schemaVersion`; `coverage` does report a subject-dependent figure
+  (removing a project's ledger moves `evaluatedRules` from 41 to 6) but is handed no finding, policy
+  or disposition and so judges nothing. Neither can establish authority, so a guard on either would
+  refuse nobody who already holds the inputs. What was missing was that their exemption rested on
+  prose: it is now a behavioural assertion that no transform output escapes for a subject whose
+  declared version was never established, with the converse asserted too.
 - Fails closed, everywhere: a missing target betting policy produces exit 2 or an unevaluated rule,
   never a verdict. Exit 2 is still never reported as non-compliance.
 
