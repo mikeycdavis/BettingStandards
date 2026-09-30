@@ -27,7 +27,7 @@ follow from its inputs.
 ## Quick start
 
 ```bash
-npm test                      # 159 tests, zero dependencies
+npm test                      # 248 tests, zero dependencies
 npm run check                 # re-derive every number in the worked examples
 npm run validate              # the verdict, with honest coverage
 node scripts/standards.mjs explain bankroll.no-martingale
@@ -147,12 +147,12 @@ standards/          21 numbered normative documents
 rules/              13 category files — the machine-readable catalog
 schemas/            decision record, betting policy, project policy
 scripts/            the CLI, the betting arithmetic, and the invariant checks
-test/               159 tests, including one known-negative per detectable prohibition
+test/               248 tests, including one known-negative per detectable prohibition
 examples/           5 worked decisions, 5 walkthroughs, 23 violation documents
 templates/          what an adopting project copies, including AGENTS.md
 design/             the concept model and the architecture/milestone plan
 artifacts/prompts/  both governing briefs, committed untouched
-artifacts/adr/      8 accepted decision records
+artifacts/adr/      9 accepted decision records
 docs/               architecture and the pipeline diagram
 ```
 
@@ -175,6 +175,16 @@ else. A project that has not declared its thresholds is not lent these: `check` 
 `validate` reports the rules that need them as unevaluated rather than passing them against numbers
 nobody wrote down. See [ADR 0008](artifacts/adr/0008-the-target-owns-the-policy-it-is-judged-against.md).
 
+A project is also only judged by the framework version it declares. `validate`, `audit`, `status` and
+`check` each exit 2 — as do `scripts/policy.mjs` and `scripts/decisions.mjs` pointed at an external
+subject — unless `standardVersion` in `project-policy.yml` is exactly the version of the checkout
+doing the evaluating — a judgement produced by one version and reported by another describes
+a conclusion that version never reached. `plan`, `init` and `explain` still work, because they
+produce no evidence. The refusal names both versions, and [CHANGELOG.md](CHANGELOG.md) says what
+changed before you raise the number. See
+[ADR 0009](artifacts/adr/0009-a-project-is-evaluated-only-by-the-version-it-declares.md), which also
+records the two places this check was put before it was put somewhere a review could not get around.
+
 Plus the repository's own invariant checks: `npm run inventory`, `npm run fidelity`,
 `npm run policy`, `npm run diagrams`.
 
@@ -194,9 +204,9 @@ quota, and a period with no wagers is a valid outcome.
   concepts, adopted, adapted, or rejected, with reasoning.
 - [`design/architecture-and-milestones.md`](design/architecture-and-milestones.md) — the layers, the
   three-way separation, and how the integrity invariant is defended.
-- [`artifacts/adr/`](artifacts/adr/) — six accepted decisions, including the prediction boundary and
+- [`artifacts/adr/`](artifacts/adr/) — nine accepted decisions, including the prediction boundary and
   why this repository vendors its machinery rather than depending on anything.
 
 ## Version
 
-1.0.0 · zero dependencies · Node >= 18 · see [CHANGELOG.md](CHANGELOG.md)
+2.0.0 · zero dependencies · Node >= 18 · see [CHANGELOG.md](CHANGELOG.md)

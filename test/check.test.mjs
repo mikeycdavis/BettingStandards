@@ -31,13 +31,20 @@ const policy = await loadBettingPolicy();
 async function checkFixture(name) {
   const file = path.join(NEG, name);
   const record = JSON.parse(await readFile(file, "utf8"));
-  return checkRecord(record, { policy, schema, file: `test/fixtures/ledger-negative/${name}` });
+  return await checkRecord(record, {
+    policy,
+    schema,
+    file: `test/fixtures/ledger-negative/${name}`,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
 }
 
-// These fixtures are this repository's own, and are judged against this repository's own thresholds.
-// Named rather than defaulted: `checkDecisions` no longer supplies a policy, so a test that omitted
-// one would be asking the checker to guess — the habit that produced ADR 0008.
+// These fixtures are this repository's own, and are judged against this repository's own thresholds
+// and by this repository's own declared framework version. Both are named rather than defaulted:
+// `checkDecisions` supplies neither, so a test that omitted one would be asking the checker to guess
+// — the habit that produced ADR 0008, and then ADR 0009.
 const OWN_POLICY = path.join(ROOT, "betting-policy.yml");
+const OWN_PROJECT_POLICY = path.join(ROOT, "project-policy.yml");
 
 const ids = (findings) => findings.map((f) => f.id);
 
@@ -70,7 +77,11 @@ test("the examples include both a BET and PASSes with distinct reasons", async (
 });
 
 test("an empty ledger reports that nothing was evaluated, and is not a pass", async () => {
-  const result = await checkDecisions({ dir: path.join(ROOT, "test/fixtures/empty-ledger"), policyPath: OWN_POLICY });
+  const result = await checkDecisions({
+    dir: path.join(ROOT, "test/fixtures/empty-ledger"),
+    policyPath: OWN_POLICY,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
   assert.equal(result.ledgerPresent, false, "a ledger that does not exist has not been checked");
   assert.deepEqual(result.findings, []);
 });
@@ -176,7 +187,11 @@ test("BOUNDARY: an edge landing exactly on the minimum is a valid BET", async ()
 // --- Cross-record ------------------------------------------------------------------------------------
 
 test("a sequence of unsupported stake increases after losses is caught", async () => {
-  const result = await checkDecisions({ dir: path.join(NEG, "martingale-seq"), policyPath: OWN_POLICY });
+  const result = await checkDecisions({
+    dir: path.join(NEG, "martingale-seq"),
+    policyPath: OWN_POLICY,
+    projectPolicyPath: OWN_PROJECT_POLICY,
+  });
   const found = result.findings.map((f) => f.id);
   assert.ok(found.includes("stake-escalation-after-loss"), `expected the first escalation to warn: ${found.join(", ")}`);
   assert.ok(found.includes("martingale-pattern"), `expected the repeated escalation to error: ${found.join(", ")}`);
@@ -199,10 +214,13 @@ test("disciplined sizing after a loss does NOT fire the escalation detector", as
   supported.integrity.decisionDigest = decisionDigest(supported.decision);
 
   const { checkLedger } = await import("../scripts/decisions.mjs");
-  const findings = checkLedger([
-    { file: "a.json", record: first },
-    { file: "b.json", record: supported },
-  ]);
+  const findings = await checkLedger(
+    [
+      { file: "a.json", record: first },
+      { file: "b.json", record: supported },
+    ],
+    { projectPolicyPath: OWN_PROJECT_POLICY },
+  );
   assert.deepEqual(
     findings.filter((f) => f.id === "stake-escalation-after-loss" || f.id === "martingale-pattern"),
     [],
@@ -213,10 +231,13 @@ test("disciplined sizing after a loss does NOT fire the escalation detector", as
 test("two records sharing an id are caught", async () => {
   const { checkLedger } = await import("../scripts/decisions.mjs");
   const record = JSON.parse(await readFile(path.join(ROOT, "examples/ledger/DEC-20260809-001.json"), "utf8"));
-  const findings = checkLedger([
-    { file: "a.json", record },
-    { file: "b.json", record: structuredClone(record) },
-  ]);
+  const findings = await checkLedger(
+    [
+      { file: "a.json", record },
+      { file: "b.json", record: structuredClone(record) },
+    ],
+    { projectPolicyPath: OWN_PROJECT_POLICY },
+  );
   assert.ok(findings.some((f) => f.id === "duplicate-record-id"));
 });
 

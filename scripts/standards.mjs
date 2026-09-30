@@ -37,6 +37,7 @@ import { parseYaml } from "./yaml.mjs";
 import { loadCatalog, resolve, coverage, assertBindings, CatalogError } from "./catalog.mjs";
 import { evaluate, envelope, STATUS } from "./compliance.mjs";
 import { checkDecisions, FINDING_RULES, SUPPLIED_RULES } from "./decisions.mjs";
+import { declaredVersionRefusal, WrongFramework } from "./framework-version.mjs";
 import { plan as initPlan, apply as initApply } from "./init.mjs";
 
 const EXIT_OK = 0;
@@ -274,8 +275,36 @@ async function attestationDigests(plan) {
   return digests;
 }
 
-/** Gather all evidence. Shared by audit and validate so they can never disagree about the facts. */
+/**
+ * Gather all evidence. Shared by audit, validate and status so they can never disagree about the
+ * facts — including the fact of which framework version is entitled to establish them.
+ *
+ * THE VERSION GUARD IS HERE BECAUSE THIS FUNCTION PRODUCES EVIDENCE, not because three commands
+ * happen to call it. That distinction is the whole history of this check. It was written in
+ * `runValidate` first, on the reasoning that only `validate` stamps `standardVersion` onto its
+ * output; review found `audit` and `status` evaluating through here unguarded. It was then written
+ * here alone, on the reasoning that this is where evaluation happens; review found `standards check`
+ * and `node scripts/decisions.mjs` reaching `checkDecisions` without passing through here at all.
+ * Both placements were a list of callers wearing the costume of a boundary.
+ *
+ * This pack has exactly TWO authorities that produce evidence, and each now guards what it
+ * establishes: this function, for project-level evidence — the policy findings, the document
+ * findings, the dispositions and the coverage figure, all of which exist even when no record is read
+ * — and `checkDecisions`, for record-level evidence. One implementation, in framework-version.mjs,
+ * asked by both. That is ownership rather than enumeration: the number of guards follows the number
+ * of places evidence is made, not the number of ways to ask for it. See ADR 0009.
+ *
+ * `plan` is untouched, and deliberately so: it previews from `buildPlan`, produces no evidence, and
+ * is the one command that can still tell an adopter on an older version what this one would ask.
+ *
+ * ORDER IS THE PROPERTY, not just the outcome. This is the first statement, so a target that is
+ * wrong in two ways fails for the version rather than partly executing under the wrong framework and
+ * then reporting whatever it tripped over downstream.
+ */
 async function gatherEvidence(plan) {
+  const refusal = await declaredVersionRefusal(plan.policyPath);
+  if (refusal) throw new WrongFramework(refusal);
+
   const findings = [];
   let recordsChecked = 0;
   let ledgerPresent = false;
@@ -295,7 +324,11 @@ async function gatherEvidence(plan) {
   // project learns that its thresholds are undeclared, rather than being told it passed ours.
   let suppliedRules = SUPPLIED_RULES;
   if (plan.hasBettingPolicy) {
-    const result = await checkDecisions({ dir: plan.ledgerDir, policyPath: plan.bettingPath });
+    const result = await checkDecisions({
+      dir: plan.ledgerDir,
+      policyPath: plan.bettingPath,
+      projectPolicyPath: plan.policyPath,
+    });
     findings.push(...result.findings);
     recordsChecked = result.records;
     ledgerPresent = result.ledgerPresent;
@@ -344,9 +377,28 @@ async function runValidate(plan, { json }) {
     return EXIT_INVOCATION;
   }
 
+  // The declared framework version is settled inside `gatherEvidence`, before anything is evaluated,
+  // and reaches this command as a thrown WrongFramework routed to exit 2 by `main`.
+  //
+  // A project may be evaluated only by the framework version it declares. That is not a new rule:
+  // schemas/project-policy.schema.json has described this field since v1.0.0 as "the framework
+  // version this project is evaluated against", and said in the same sentence that an unresolvable
+  // version is "a configuration error, not a compliance failure — exit 2, never a verdict". The
+  // implementation read the field, echoed it into the envelope, and evaluated with whatever the
+  // executing checkout carried.
+  //
+  // That was dormant while the pack was 1.0.x: a target declaring 1.0.0 got 1.0.x semantics, so the
+  // label was accidentally true. At 2.0.0 it stops being dormant. A target still declaring 1.0.0 —
+  // and v1.0.0 is the only release anyone can pin — would be evaluated under changed external-target
+  // semantics and handed a result labelled 1.0.0. A verdict produced by one framework version and
+  // labelled as another is the same false green this pack refuses everywhere else, wearing a
+  // version number instead of a rule id.
+  //
+  // Exact equality, deliberately. This pack has no compatibility range and no resolution mechanism,
+  // and inventing one here would create an unreviewed contract in the middle of a fix.
   const evidence = await gatherEvidence(plan);
   const today = new Date().toISOString().slice(0, 10);
-  const verdict = evaluate({
+  const verdict = await evaluate({
     catalog: plan.catalog,
     policy: plan.policy,
     findings: evidence.findings,
@@ -628,7 +680,14 @@ async function main() {
         // The target's own thresholds, named explicitly. Omitting this let `checkDecisions` fall back
         // to THIS pack's betting-policy.yml, so `check <someone else's repo>` re-derived their numbers
         // correctly and then judged their decisions against ours.
+        //
+        // And the target's own project policy, named the same way and for the same reason. This
+        // command does not call `gatherEvidence`, so the guard there never saw it: review measured
+        // `check <target declaring 1.0.0>` re-deriving five records under a 2.0.0 checkout, exit 0.
+        // Both identities are joined onto the directory this command was HANDED — nothing is
+        // searched for, and nothing falls back.
         const policyPath = path.join(dir, "betting-policy.yml");
+        const projectPolicyPath = path.join(dir, "project-policy.yml");
         if (!(await exists(policyPath))) {
           process.stderr.write(
             `standards check: no betting-policy.yml in ${dir}\n` +
@@ -637,7 +696,7 @@ async function main() {
           );
           process.exit(EXIT_INVOCATION);
         }
-        const result = await check({ dir: ledger, policyPath });
+        const result = await check({ dir: ledger, policyPath, projectPolicyPath });
         process.stdout.write(options.json ? JSON.stringify(result, null, 2) + "\n" : render(result, options));
         process.exit(result.findings.some((f) => f.severity === "error") ? EXIT_VERDICT : EXIT_OK);
         break;

@@ -180,9 +180,15 @@ never retroactively re-judges past decisions.
 2. `buildPlan(dir)` loads the catalog via `catalog.mjs`, reads `project-policy.yml` through
    `yaml.mjs`, and classifies every rule as automated, needs-attestation, not-applicable, or
    not-evaluated.
-3. `gatherEvidence(plan)` calls `checkDecisions()` in `decisions.mjs`, which for each record in
-   `examples/ledger/` (or `ledger/` in an adopting project) recomputes every derived value through
-   `betmath.mjs` and re-evaluates the decision rule.
+3. `gatherEvidence(plan)` refuses outright unless the project's declared `standardVersion` is the
+   version this checkout executes, then calls `checkDecisions()` in `decisions.mjs`, which refuses on
+   the same grounds again before opening anything. Those are two of the three authorities that
+   produce evidence in this pack — `checkPolicy()` in `policy.mjs` is the third — and each guards what
+   it establishes; see ADR 0009 for why the guard is not in the commands, and
+   `test/evidence-surface-census.test.mjs` for the derived inventory that keeps the list of three
+   honest. For each record in `examples/ledger/` (or `ledger/` in an adopting project),
+   `checkDecisions` recomputes every derived value through `betmath.mjs` and re-evaluates the
+   decision rule.
 4. Policy-level and document-level detectors add findings for thresholds, caps, and required
    documents.
 5. `assertBindings()` throws if any finding names a rule the catalog does not define.

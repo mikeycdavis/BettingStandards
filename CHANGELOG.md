@@ -1,69 +1,233 @@
 # Changelog
 
-## 1.1.0 — 2026-08-25
+## 2.0.0 — 2026-08-26
 
-**Evaluator semantics corrected. Externally observable: a target that passed only because of this
-defect will now report what it actually is.** No normative change — see "Unchanged" below.
+**2.0.0 corrects external-target policy ownership.** Previous releases could evaluate a target's
+decision records against **BettingStandards' own** betting thresholds, producing false-positive
+compliance and inflated coverage. External decision evaluation now requires the target's governing
+betting policy explicitly. As a consequence, several previously accepted CLI and programmatic
+invocations reject a missing policy context rather than returning an unauthoritative result.
 
-`standards validate <target>` judged an external project's decision records against **this
-repository's** `betting-policy.yml`. It read the target's `project-policy.yml` from the target, and
-the target's `betting-policy.yml` from the target for the rules that ask whether the thresholds are
-declared — and then evaluated the records themselves against ours, because the call that does the
-evaluating omitted the policy path and the default was this pack's own file.
+**Normative standards: unchanged.** Every standard, rule, level, severity, assurance value and
+verdict term is byte-identical to `v1.0.0`. **Evaluator semantics and the public invocation
+contract: breaking.** Those two facts are separate and both are load-bearing — a major version is
+exactly where a reader would expect the standards to have moved, so the claim that they did not is
+made mechanically by `test/baseline.test.mjs` rather than asserted here.
 
-Measured before the fix: a target declaring `minEdge: "0.90"`, whose records carry an adjusted edge of
-0.040463, returned `COMPLIANT`, exit 0, `denominator.scored: 25`. It cleared every gate a consumer
-could check. ADR 0008 records the measurement, the two-row table that isolates the cause, and the
-mutants each new guard was run against.
+### The public lineage
 
-### Changed
+```text
+v1.0.0  a4e7e68   the last release a consumer can resolve
+   ↓
+v2.0.0            this release
+```
 
-- `validate` binds the target's `betting-policy.yml`. A target that declares none is no longer lent
-  this one: the record-derived rules are reported unevaluated, and the findings that already fail for
-  a missing policy continue to say why.
-- `standards check <target>` binds the same path, and **exits 2** where a target declares no betting
-  policy. It previously produced a report derived from thresholds that project never declared.
-- `node scripts/decisions.mjs` accepts `--policy <path>`, and refuses `--dir` or `--record` without
-  it. That entry point is handed a ledger directory and cannot find the repository root above it
-  without guessing.
-- `checkDecisions` resolves its policy path once instead of defaulting twice — the recorded policy
-  digest and the policy actually loaded can no longer be two different files.
-- **The decision checker declares the rules its execution establishes**, and `validate` removes that
-  set — no other — when the checker produces no record evidence. `gatherEvidence` previously matched
-  rule-id prefixes it maintained itself, and that approximation missed three rules: a target with a
-  full ledger and no betting policy reported `edge.threshold-respected`,
-  `edge.no-fabricated-edge` and `edge.no-probability-only-bets` as passed at full assurance, from
-  records nothing had read. Coverage on that specimen drops from 12 evaluated rules to 6, which is
-  what it always was. See the addenda to ADR 0008.
+`v1.0.1` was tagged locally and never pushed. `git ls-remote --tags origin` has only ever returned
+`v1.0.0`, so from outside this repository no `v1.0.1` release exists and no consumer ever had one.
+It is **not** being published retrospectively to make the entry below tidy: the public history
+should say what actually happened. Its adapter metadata ships here instead, as part of 2.0.0.
 
-### Changed — programmatic API
+### What was wrong
 
-- `checkDecisions({ dir, policyPath })` **requires `policyPath`** and throws without it. The CLI
-  refusal closed one door; a default on the function left the same mistake available to any caller
-  that does not go through `parseArgs`.
-- New `checkOwnExamples()` — this repository's own ledger against its own policy, the one case where
-  the pack may supply the numbers, given a name so it cannot be mistaken for generic behaviour.
-- New export `SUPPLIED_RULES`, and every `checkDecisions` result now carries `suppliedRules`.
+`standards validate <target>` read the target's `project-policy.yml` and the target's
+`betting-policy.yml` — and then evaluated the records themselves against ours, because the call that
+does the evaluating omitted the policy path and the default was this pack's own file.
 
-Both API changes are breaking for a direct importer. Nothing in this repository or in
-`standards-adapter.json` invoked either shape.
+Measured at `v1.0.0`, against a project with a real five-record ledger, a `project-policy.yml`, and
+no `betting-policy.yml` of its own:
+
+```text
+v1.0.0    standards check <target>    exit 0     a report from thresholds that project never declared
+          validate <target>           passed 36  coverage 41
+2.0.0     standards check <target>    exit 2
+          validate <target>           passed 2   coverage 6
+```
+
+Thirty-six rules reported as passed, every one of them judged against numbers the project never
+wrote down. Nothing errored, and the result was shaped exactly like a correct one.
+
+A second defect of the same family was found and fixed before this release shipped, after the first
+repair had already merged. `gatherEvidence` decided which rules lose their evidence when decision
+evaluation does not run by matching rule-id **prefixes it maintained itself**, one module away from
+the checker that produces the findings. That approximation missed seven record-derived rules, so a
+target with a full ledger and no betting policy still reported all seven as `passed` and `evaluated`
+— two of them at full assurance, five at partial — from records nothing had read. The prefix list
+was deleted rather than extended; ADR 0008 records why a longer enumeration outside the authority
+that creates the findings would have been correct only until the next rule was added.
+
+A third defect surfaced in review of this release and is fixed here: nothing checked a target's
+declared `standardVersion` against the version doing the evaluating.
+
+### Breaking — a project is evaluated only by the version it declares
+
+`standards validate`, `standards audit`, `standards status` and `standards check` now **exit 2**
+unless the target's declared `standardVersion` is exactly the version of the executing checkout. So
+do `node scripts/decisions.mjs` pointed at an external ledger and `node scripts/policy.mjs` pointed
+at an external policy. A declaration that is absent, is not a version, or names a different release
+is a configuration error and produces no verdict, no findings, and no coverage figure.
+
+**Absence and contradiction are the same class here.** A subject that declares no `standardVersion`
+is refused exactly as one declaring the wrong version is: in both cases the executing framework has
+not been authorized to interpret the subject. Treating absence more permissively would create a route
+where saying nothing is safer than saying something wrong.
+
+`standards plan`, `init` and `explain` are unaffected. They produce no evidence, so there is no
+judgement to attribute to a framework — and `plan` in particular is the one command that can still
+tell an adopter on an older version what this one would ask of them.
+
+This is a long-standing schema guarantee finally being kept, not a new rule.
+`schemas/project-policy.schema.json` has described the field since `v1.0.0` as *"the framework
+version this project is evaluated against"* and said in the same sentence that an unresolvable
+version is *"a configuration error, not a compliance failure — exit 2, never a verdict"*. Nothing
+implemented it: the field was read, echoed into the result envelope, and ignored. A target's policy
+is never validated against that schema, so not even `required` or the semver `pattern` were enforced.
+
+**Why this release rather than the next.** While the pack was 1.0.x the gap was dormant — a target
+declaring `1.0.0` got 1.0.x semantics, so the label was accidentally true. This release changes what
+`validate` does to an external target, and `v1.0.0` is the only release anyone can pin, so an
+unchanged v1 declaration would silently cross a major semantic boundary and be handed a 2.0.0 verdict
+labelled `1.0.0`. Measured before the fix, on this candidate: a target declaring `1.0.0` returned
+`COMPLIANT`, score 96, coverage 41, exit 0, envelope `standardVersion: "1.0.0"`. Shipping the major
+without the check would have knowingly published a release that contradicts its own schema — and a
+result produced by one framework version and labelled as another is the same false green this pack
+refuses everywhere else, wearing a version number instead of a rule id.
+
+Matching is **exact equality**. This pack has no compatibility range and no version-resolution
+mechanism, and one was deliberately not invented here.
+
+**The check guards evaluation, not reporting, and it took four attempts to place it there.** The
+first implementation put it in `validate` alone, reasoning that `validate` is the only command that
+stamps the declared version onto its output. Review found `audit` and `status` evaluating the same
+records unguarded — and `audit --strict` returning that as a gating failure, which is a
+wrong-framework judgement with a CI job attached rather than a label on a document. The second put it
+in the shared evidence-gathering step those three commands call. Review found `standards check` and
+`node scripts/decisions.mjs` reaching the record checker without passing through it at all, and
+measured both re-deriving five records of a target declaring `1.0.0` under a 2.0.0 checkout, exit 0.
+
+The third put it in the two authorities that produce evidence. Review found a third authority:
+`scripts/policy.mjs` / `checkPolicy()` loads this checkout's rule catalog and applies `nonExemptible`
+to a policy document it is pointed at, reaching neither of the other two. An external policy declaring
+`1.0.0` produced `policy.non-exemptible-rule` at **exit 1** — a findings exit, about a subject that
+never authorized this framework to judge it.
+
+Every one of those placements was a list of callers wearing the costume of a boundary, and each
+inventory behind them was assembled by hand. The check now lives in the three authorities that
+produce evidence, each guarding what it establishes, all asking one shared implementation — and the
+inventory itself is derived rather than asserted: `test/evidence-surface-census.test.mjs` builds it
+by globbing `scripts/` and importing every module, and fails when it meets a file or an export nobody
+has classified. Its own *scope* is derived too — the repository is walked, and `scripts/` must be the
+only place executable code lives, so a module added elsewhere fails the census rather than sitting
+outside it. **ADR 0009** records the full topology, the three placements that failed, why there is
+deliberately no self-checkout exemption, and the one surface the census classifies by reading rather
+than by running.
+
+To adopt: read this entry, then set `standardVersion: "2.0.0"` in your `project-policy.yml`. The
+refusal names both versions and says exactly that.
+
+### Breaking — command line
+
+- `standards check <target>` **exits 2** where a target declares no betting policy. It previously
+  exited 0 and printed a report derived from this pack's thresholds.
+- `node scripts/decisions.mjs --dir` / `--record` **exits 2** without `--policy`, and also without
+  `--project-policy`. That entry point is handed a ledger directory and cannot find a repository root
+  above it without guessing — and a ledger cannot supply either of the two identities its records are
+  judged by: the thresholds they were decided under, and the framework version entitled to judge
+  them.
+- `standards validate <target>` — verdict, score, coverage and individual rule dispositions can all
+  change for the same unmodified target, because the old values were derived from the wrong policy.
+  A project that read `COMPLIANT` may now read `NON_COMPLIANT`, and coverage may fall sharply. **The
+  earlier numbers were not conservative; they were unsound.**
+
+### Breaking — programmatic
+
+- `checkDecisions({ dir, policyPath, projectPolicyPath })` **requires both `policyPath` and
+  `projectPolicyPath`** and throws without either. The CLI refusals close two doors; a default on the
+  function left the same mistake available to any caller that does not go through `parseArgs`.
+  `projectPolicyPath` takes a path, never a version string: a caller chooses *which* project policy
+  speaks for these records, never what it says.
+- `checkPolicy(policyPath, schemaPath, today)` **throws `WrongFramework`** rather than returning
+  findings when the subject's declared version is not the executing one. It accepts an optional
+  fourth argument, `{ authorityPath }`, naming the project policy that carries the declaration; it
+  defaults to the subject, because a project policy is its own declaration.
+- `checkLedger(records)` is now **`async checkLedger(records, { projectPolicyPath })`** and throws
+  without it.
+- `checkRecord(record, { policy, schema, file })` is now **async and requires `projectPolicyPath`**.
+- `evaluate({ catalog, policy, ... })` is now **async and throws `WrongFramework`** when the policy
+  it is handed declares a version this checkout does not execute.
+
+  These three were classified as primitives on the ground that their caller supplies everything. The
+  caller supplies *inputs*, not *semantics*: the thirteen rule ids `checkRecord` attributes, the
+  ledger reasoning in `checkLedger`, and the verdict algebra in `evaluate` — STATUS, the exception
+  handling, the prohibition ranking, the scoring — are written into this pack. A betting policy and a
+  schema are thresholds and a shape, not a framework. `evaluate` was the sharpest case: it is handed
+  the project policy document that carries the declaration, and applied 2.0.0 semantics to a policy
+  declaring `1.0.0` without reading it.
+
+  `checkRecord` and `checkLedger` take a project-policy path they open, by the same provenance rule
+  as everything else. `evaluate` reads the declaration out of the document it was already given —
+  which is not the rejected "accept a version string" shape, because what it receives is the
+  document, and it extracts the version itself.
+
+  `envelope` and `coverage` were examined in the same pass and are **unchanged** — deliberately, and
+  with the reasoning recorded rather than the outcome. `envelope` copies every judgement field
+  through and contributes only a `schemaVersion`; `coverage` does report a subject-dependent figure
+  (removing a project's ledger moves `evaluatedRules` from 41 to 6) but is handed no finding, policy
+  or disposition and so judges nothing. Neither can establish authority, so a guard on either would
+  refuse nobody who already holds the inputs. What was missing was that their exemption rested on
+  prose: it is now a behavioural assertion that no transform output escapes for a subject whose
+  declared version was never established, with the converse asserted too.
+- Fails closed, everywhere: a missing target betting policy produces exit 2 or an unevaluated rule,
+  never a verdict. Exit 2 is still never reported as non-compliance.
+
+### Added
+
+- `--policy <path>` and `--project-policy <path>` on `scripts/decisions.mjs`.
+- `--project-policy <path>` on `scripts/policy.mjs`, required with `--betting <path>` for any betting
+  policy but this repository's own: a betting policy declares no framework version, so the project
+  whose framework judges it is named rather than assumed.
+- `checkOwnExamples()` — this repository's own ledger against its own policy, the one case where the
+  pack may supply the numbers, given a name so it cannot be mistaken for generic behaviour.
+- `SUPPLIED_RULES`, exported by the decision checker: the exact set of rules its execution
+  establishes. `validate` removes that set — no other — when the checker produces no record
+  evidence, and every `checkDecisions` result carries it as `suppliedRules`.
+- `standards-adapter.json`, the machine-readable declaration of how this pack is invoked and how its
+  result is read. Written for the unpublished 1.0.1; it reaches consumers here.
+
+### Changed — release identity
+
+`VERSION`, `package.json`, `README.md`, `test/baseline.test.mjs`, this file, and the
+`standardVersion` declared by both `project-policy.yml` and `templates/project-policy.yml`. The
+template mattered: shipping 2.0.0 while `standards init` still stamped `standardVersion: "1.0.0"`
+into every newly adopted project would have made the release contradict itself on its first day.
+
+`standards-adapter.json` declares no pack version — only the adapter schema's — so nothing in it
+moved.
 
 ### Unchanged
 
 Every standard, every rule, and every level, severity, disposition and assurance value; the verdict
-vocabulary; the scoring; the exit codes; `standards-adapter.json`, whose declared invocation was
-correct before and after. `test/baseline.test.mjs` pins the published shape and `version` is again the
-only field in it that moved — 21 standards, 51 rules at 25/3/23, 23 non-exemptible prohibitions, 8
-manual-review, 41 evaluated, 13 fully machine-represented, `COMPLIANT` at 94.
+vocabulary; the scoring; the exit-code meanings. `test/baseline.test.mjs` pins the published shape
+and `version` is the only field in it that moved — 21 standards, 51 rules at 25/3/23, 23
+non-exemptible prohibitions, 8 manual-review, 41 evaluated, 13 fully machine-represented,
+`COMPLIANT` at 94.
 
-### Why a minor rather than a patch
+### Why a major rather than a minor
 
-A patch would say the observable behaviour is the same, and it is not: verdicts change for external
-targets, `check` refuses inputs it used to accept, and two programmatic entry points changed shape.
-`v1.0.1` is left standing with the defect it shipped rather than amended, so the historical release
+Three documented interfaces reject calls `v1.0.0` accepted, and one of them throws. That the old
+behaviour was unsound is the **reason** for the break, not a reason to ship it as a minor: a
+consumer pinned on `^1` picking this up gets an exception from a call that worked. Semantic
+versioning governs the contract, not whether the contract was serving correct answers.
+
+`v1.0.0` is left standing with the defect it shipped rather than amended, so the historical release
 stays reproducible.
 
-## 1.0.1 — 2026-08-09
+## 1.0.1 — 2026-08-09 · NEVER PUBLISHED
+
+**This release was prepared and tagged locally, and the tag was never pushed.** `git ls-remote
+--tags origin` has only ever returned `v1.0.0`, so no consumer could resolve `v1.0.1` and none ever
+had it. The entry is kept rather than deleted because it is what happened; it is marked rather than
+quietly renumbered because a changelog that describes a release nobody could fetch is the same kind
+of confident-but-wrong artefact this pack exists to refuse. Its contents shipped in 2.0.0.
 
 **Interoperability metadata. No normative or evaluator semantic change.**
 

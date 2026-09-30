@@ -9,10 +9,18 @@
  * That approximation was survivable only while the single way to reach zero checked records was an
  * absent or empty ledger, where nothing was there to mislead anyone. Binding the target's betting
  * policy (ADR 0008) created a second, legitimate route: a target with a full ledger and no
- * `betting-policy.yml` skips the checker entirely. Measured on a five-record ledger, the prefix list
- * missed `edge.threshold-respected`, `edge.no-fabricated-edge` and `edge.no-probability-only-bets`,
- * and `validate` reported all three as `passed`, `disposition: evaluated`, `assurance: full`, from a
- * ledger no code had opened. The same false green as the policy leak, through a different door.
+ * `betting-policy.yml` skips the checker entirely. Measured on a five-record ledger carrying
+ * `templates/project-policy.yml`, the prefix list missed SEVEN rules — `bankroll.no-martingale`,
+ * `bankroll.no-loss-driven-sizing`, `bankroll.stake-within-unit-rules`, `edge.threshold-respected`,
+ * `edge.no-fabricated-edge`, `edge.no-probability-only-bets` and `exposure.no-cap-breaches` — and
+ * `validate` reported all seven as `passed`, `disposition: evaluated`, two of them at full assurance
+ * and five at partial, from a ledger no code had opened. The same false green as the policy leak,
+ * through a different door.
+ *
+ * The first reproduction found three, because it used the pack's OWN `project-policy.yml`, which
+ * declares the four `bankroll.*` and `exposure.*` rules not-applicable. That fixture measured the
+ * pack against its own exemptions rather than against what an adopter gets from `standards init`.
+ * ADR 0008 records the correction; the fixture below uses the template for that reason.
  *
  * THE PROPERTY.
  *
@@ -21,9 +29,11 @@
  *   > evaluator itself owns the exact set of rules whose dispositions it can establish.
  *
  * WHY A MUTATION TEST IS PART OF THE ACCEPTANCE. A regression built from one fixture proves only
- * that the three rules that fixture happened to expose are covered. The mutation below removes one
- * rule from the checker's declared set and requires the regression to go red, which is what
- * distinguishes "the mechanism is load-bearing" from "the list currently happens to be long enough".
+ * that the seven rules this fixture happens to expose are covered — and the corrected fixture above
+ * is itself the evidence that a fixture's reach is not the property's reach, since the first one
+ * exposed three of the same seven. The mutation below removes one rule from the checker's declared
+ * set and requires the regression to go red, which is what distinguishes "the mechanism is
+ * load-bearing" from "the list currently happens to be long enough".
  *
  * Fixtures live in temporary directories and the evaluator under test is a copy of the tree, for the
  * reason given at the head of target-policy.test.mjs: these tests mutate an evaluator, and

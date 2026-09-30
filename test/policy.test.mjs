@@ -10,6 +10,8 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPolicy, loadBettingPolicy, coerceNumber } from "../scripts/policy.mjs";
@@ -17,7 +19,39 @@ import { checkPolicy, loadBettingPolicy, coerceNumber } from "../scripts/policy.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_SCHEMA = path.join(ROOT, "schemas/project-policy.schema.json");
 const BETTING_SCHEMA = path.join(ROOT, "schemas/betting-policy.schema.json");
-const fixture = (kind, name) => path.join(ROOT, `test/fixtures/${kind}-policies/${name}`);
+const rawFixture = (kind, name) => path.join(ROOT, `test/fixtures/${kind}-policies/${name}`);
+/**
+ * Fixture policies are materialised declaring the version this checkout executes.
+ *
+ * `checkPolicy` now refuses a subject whose declared `standardVersion` is not the executing one
+ * (ADR 0009), and these fixtures are handed straight to it. Stamping the version rather than writing
+ * it into the files keeps the fixtures about the thing each one is actually testing — an expired
+ * exception, a conflicting classification — instead of adding five files to the list that has to be
+ * edited at every release. It is the same reason the other suites read `VERSION` rather than naming
+ * a version twice.
+ *
+ * The stamp is asserted, not attempted: a fixture that declares nothing would otherwise be refused
+ * later for a reason that has nothing to do with what it was written to prove.
+ */
+const PACK_VERSION = readFileSync(path.join(ROOT, "VERSION"), "utf8").trim();
+const TEMPORARY = [];
+process.on("exit", () => {
+  for (const dir of TEMPORARY) rmSync(dir, { recursive: true, force: true });
+});
+
+function declaringThisVersion(source) {
+  const body = readFileSync(source, "utf8");
+  const stamped = body.replace(/^standardVersion:.*$/m, `standardVersion: "${PACK_VERSION}"`);
+  if (stamped === body) throw new Error(`${source} declares no standardVersion to stamp`);
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bs-fixture-"));
+  TEMPORARY.push(dir);
+  const out = path.join(dir, path.basename(source));
+  writeFileSync(out, stamped, "utf8");
+  return out;
+}
+
+const fixture = (kind, name) =>
+  kind === "project" ? declaringThisVersion(rawFixture(kind, name)) : rawFixture(kind, name);
 
 const TODAY = "2026-08-09";
 

@@ -149,17 +149,31 @@ answered with a **prefix match over rule ids** — `record.`, `decision.`, `odds
 and seven more — maintained by hand in `standards.mjs`, one module away from the code that produces
 the findings. Two representations of one fact, kept in step by nothing.
 
-Measured on a target with the five worked examples and no betting policy:
+Measured on a target with the five worked examples, `templates/project-policy.yml`, and no betting
+policy:
 
 ```text
-edge.threshold-respected        passed   evaluated   assurance: full
-edge.no-probability-only-bets   passed   evaluated   assurance: partial
-edge.no-fabricated-edge         passed   evaluated   assurance: full
+bankroll.stake-within-unit-rules   passed   evaluated   assurance: full
+bankroll.no-martingale             passed   evaluated   assurance: partial
+bankroll.no-loss-driven-sizing     passed   evaluated   assurance: partial
+edge.threshold-respected           passed   evaluated   assurance: full
+edge.no-probability-only-bets      passed   evaluated   assurance: partial
+edge.no-fabricated-edge            passed   evaluated   assurance: partial
+exposure.no-cap-breaches           passed   evaluated   assurance: partial
 ```
 
-Three rules reporting a clean bill of health from a ledger no code had opened — the same false green
-as the policy leak, arriving through a different door. The prefix list was survivable only while the
-sole way to reach zero records was an empty ledger, where there was nothing to be wrong about.
+Seven rules reporting a clean bill of health from a ledger no code had opened — two at full
+assurance, five at partial — the same false green as the policy leak, arriving through a different
+door. The prefix list was survivable only while the sole way to reach zero records was an empty
+ledger, where there was nothing to be wrong about.
+
+**The first reproduction of this found only three, and recording why matters more than the number.**
+It copied *this repository's own* `project-policy.yml` into the fixture, and this repository declares
+the four `bankroll.*` and `exposure.*` rules not-applicable — so the fixture hid four of the seven
+behind an applicability declaration that no adopting project shares. The widened reproduction uses
+`templates/project-policy.yml`, which is what `standards init` actually writes, and therefore
+measures what an adopter would actually have hit. A fixture built from the pack's own policy is not a
+neutral observer of the pack.
 
 **Decision. The checker declares the exact set of rules its execution establishes, and the evaluator
 removes that set — no other — when the checker does not produce record evidence.** `SUPPLIED_RULES`
@@ -180,8 +194,10 @@ the set, because their evidence was never in the records: five come from the bet
 contents and one from a document, and they survive a skipped ledger honestly.
 
 The mutation is the acceptance criterion. Removing one rule from the declaration must make the
-regression go red; a fixture-derived test would otherwise prove only that the three rules that fixture
-happened to expose are covered. The victim chosen — `record.decision-record-required` — is one the old
+regression go red; a fixture-derived test would otherwise prove only that the seven rules this fixture
+happens to expose are covered — and the correction recorded above, where the first fixture reached
+only three of those seven, is the standing evidence that a fixture's reach is not the property's
+reach. The victim chosen — `record.decision-record-required` — is one the old
 prefix list *would* have caught, so the test discriminates the mechanism rather than the fixture:
 
 ```text

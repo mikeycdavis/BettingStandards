@@ -9,6 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,10 @@ import { EVALUATED_RULES } from "../scripts/standards.mjs";
 
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+// See the note in test/adapter-contract.test.mjs: a fixture handed to `validate` must declare the
+// version that evaluates it, and that version is read rather than written down a second time.
+const PACK_VERSION = readFileSync(path.join(ROOT, "VERSION"), "utf8").trim();
 const CLI = path.join(ROOT, "scripts/standards.mjs");
 const catalog = await loadCatalog();
 
@@ -287,7 +292,7 @@ test("a project with no ledger does not report its record rules as passing", asy
     await mkdir(path.join(dir, "ledger"), { recursive: true });
     await writeFile(
       path.join(dir, "project-policy.yml"),
-      'standardVersion: "1.0.0"\nproject: "empty"\nexceptions: []\n',
+      `standardVersion: "${PACK_VERSION}"\nproject: "empty"\nexceptions: []\n`,
       "utf8",
     );
     const { stdout } = await cli("validate", dir, "--json");
