@@ -212,6 +212,44 @@ which is the shape of every failure above, moved up one level. A module added at
 would have produced evidence and been invisible to every test. The scope is derived now too: the
 repository is walked, and `scripts/` must be the only place executable code lives.
 
+**Amendment (ST-03): `ci-stages.mjs` is classified by execution, not by reading.** It was the one
+surface the census could neither run nor import, because it has no `argv[1]` guard and executes the
+whole pipeline, this suite included, on import. Its classification rested on two properties of its
+source (no exports, argv only consulted through two boolean `.includes()` calls). That is evidence
+about two properties, not behavioural proof, and it could not notice a route the patterns do not name.
+
+It is now run. `ROOT` in that file is derived from its own location, so the unmodified file is copied
+into a temporary tree beside a stub `ci/pipeline.json` and executed there: same bytes, different root,
+stub stages, no recursion. **No production code changed and no manifest-override input was added**,
+because an override would be an external input to the surface being shown to have none. The tests
+assert, by execution, that handing it an external subject (as a path, a directory, a rogue manifest, in
+`--flag value` and `--flag=value` forms, or as its working directory) changes none of: the stages run,
+the arguments they receive, its exit code, its output, its evidence record; that the record's keys are
+a closed set containing a pipeline result and nothing about a subject; that a failed stage stops the
+run and later stages are `not-run`, never `passed`; that an unreadable manifest is exit 2 with no
+record; and that importing it exposes no export (the export census, read by execution). A control
+asserts the fixture runs the shipped file byte for byte. The source-property test remains as a cheap
+tripwire and is no longer the ground of the classification.
+
+Mutations, each run against `scripts/ci-stages.mjs` and reverted:
+
+```text
+manifest path taken from argv             killed (tripwire and executed)
+add an export                             killed (tripwire and executed)
+forward positional args to stages         killed (tripwire and executed)
+manifest resolved from the cwd            killed by the executed cwd test only
+record gains a standardVersion key        killed by the executed record test only
+not-run recorded as passed                killed by the executed record test only
+remove fail-fast                          killed by the executed record test only
+--dir changes the working directory       survived: an equivalent mutant. Stages run with an
+                                          absolute cwd and the manifest and evidence paths are
+                                          absolute, so the chdir has no observable effect
+```
+
+What this does not establish: it is a finite set of spellings, not a proof over all inputs, and a
+future input that is not argv, cwd or the manifest (for example an environment variable that selects
+a manifest) is outside what is probed. Environment is deliberately not varied here.
+
 ### The input is a path, never a version string
 
 `declaredVersionRefusal` is handed a path to a `project-policy.yml` and opens it. A caller that

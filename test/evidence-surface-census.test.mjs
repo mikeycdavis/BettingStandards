@@ -66,7 +66,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -133,13 +133,16 @@ const CLI_CENSUS = {
   "catalog.mjs": { expect: "inert", why: "library: loads this repository's own rule catalog." },
   "ci-stages.mjs": {
     expect: "inert",
-    exec: false,
+    // Not run by the generic sweep, because running it against THIS checkout executes the real
+    // eight-stage pipeline, which includes this suite, recursively. It is run by execution anyway,
+    // in the dedicated tests at the foot of this file: the unmodified file is copied into a fixture
+    // tree with a stub manifest and executed there, so the proof is behavioural and not recursive.
+    exec: "fixture",
     why:
       "runs the pipeline declared in ci/pipeline.json against this repository. It reads process.argv " +
       "only for the boolean flags --verbose and --json and never takes a path, so no external subject " +
-      "can reach it. NOT executed by this test: doing so runs the entire eight-stage pipeline, which " +
-      "includes this suite, recursively. This is the one surface in the census classified by reading " +
-      "rather than by running, and it is recorded here rather than left implicit.",
+      "can reach it. Proved by execution in a fixture tree (see 'ci-stages.mjs, executed'), with the " +
+      "source-property test kept only as a cheap tripwire.",
   },
   "compliance.mjs": { expect: "inert", why: "library: no command line. `evaluate` guards; see the export census." },
   "init.mjs": { expect: "inert", why: "library: bootstraps a new project, driven by `standards init`." },
@@ -162,11 +165,11 @@ const EXPORT_CENSUS = {
     all: "primitive",
     noImport: true,
     why:
-      "the pipeline runner. NOT imported by this test: it has no `argv[1]` guard and executes the " +
-      "full eight-stage pipeline — this suite included — on import. Its surface is therefore " +
-      "classified by reading rather than by importing, which is the one place this census falls back " +
-      "on inspection. It takes no path from argv (only --verbose and --json) and has no external " +
-      "subject to interpret.",
+      "the pipeline runner. NOT imported in-process here: it has no `argv[1] guard` and executes the " +
+      "full eight-stage pipeline — this suite included — on import. Its export list is instead read " +
+      "by execution: the unmodified file is imported inside a fixture tree with a stub manifest (see " +
+      "'ci-stages.mjs, executed'), and must expose no export. It takes no path from argv (only " +
+      "--verbose and --json) and has no external subject to interpret.",
   },
   "inventory.mjs": { all: "primitive", why: "`compare` takes two supplied inventories of this repository's own files." },
   "fidelity.mjs": { all: "primitive", why: "no exports. Checks this repository's own rule text against its own standards documents." },
@@ -335,9 +338,9 @@ test("an external subject cannot influence any surface classified as inert", asy
   for (const [file, spec] of Object.entries(CLI_CENSUS)) {
     if (spec.expect !== "inert") continue;
     assert.ok(spec.why, `${file} is exempt with no reason recorded`);
-    // One surface is classified by reading rather than running, and says so in its own reason. An
-    // excluded member of a census has to be visible in the census, not absent from it.
-    if (spec.exec === false) continue;
+    // A surface that cannot be run against this checkout says so in its own entry and names where
+    // it IS run. An excluded member of a census has to be visible in the census, not absent from it.
+    if (spec.exec === "fixture") continue;
     const without = await cli(path.join(SCRIPTS, file));
     const with_ = await cli(path.join(SCRIPTS, file), subject);
     assert.equal(with_.code, without.code, `${file}: an external argument changed the exit code`);
@@ -561,4 +564,234 @@ test("the same transform output is present for a subject that did establish its 
   const status = await cli(CLI, "status", dir, "--json");
   assert.equal(status.code, 0, "status on the current subject must succeed");
   assert.match(status.stdout, /evaluatedRules/, "`coverage` must report its figure for an authorized subject");
+});
+
+/* --------------------------------------------------------------------------------------------
+ * ci-stages.mjs, EXECUTED (ST-03).
+ *
+ * The source-property test above is evidence about two properties of the text: no exports, and argv
+ * never indexed. That is not behavioural proof, and it cannot notice a surface that becomes
+ * evidence-producing by a route the regexes do not name (an environment variable, a file read, a new
+ * flag spelled differently). So the file is also RUN.
+ *
+ * WHY THIS IS NOT RECURSIVE. Running ci-stages.mjs in this checkout runs the real pipeline, which
+ * runs this suite. Its ROOT, though, is derived from its own location (`dirname/..`), so the
+ * UNMODIFIED file is copied into a temporary tree beside a stub `ci/pipeline.json` and executed
+ * there. Same bytes, different root, stubs for stages. No production code changed to allow it, and
+ * no manifest-override input was added: an override would itself be an external input to the very
+ * surface being shown to have none.
+ *
+ * WHAT "INERT" MEANS HERE, stated as observable behaviour: handing the runner any external subject
+ * (as an argument in any spelling, as its working directory, as a file it is pointed at) changes
+ * nothing: not the stages run, not the arguments those stages receive, not its exit code, its
+ * output or its evidence record. And that record never carries a finding, disposition, score,
+ * coverage figure or standards verdict, only a pipeline result.
+ * ------------------------------------------------------------------------------------------ */
+
+// Stage commands are plain tokens, never quoted strings: on Windows the runner spawns with
+// `shell: true`, which joins the argument list with spaces and no quoting, so `node -e "..."` would
+// not survive. The stub is a file instead; a stage whose id contains "fail" exits 3.
+const STAGE_STUB =
+  "const fs = require('fs');\n" +
+  "fs.appendFileSync('stage.log', JSON.stringify([process.argv[2], process.argv.slice(3)]) + '\\n');\n" +
+  "process.exit(process.argv[2].includes('fail') ? 3 : 0);\n";
+
+function stubStage(id) {
+  return { id, name: `Stub ${id}`, command: ["node", "stage-stub.cjs", id], why: "stub" };
+}
+
+/** A tree holding the real ci-stages.mjs and a stub manifest. Returns where to run it. */
+function makeRunnerFixture(stages) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bs-cistages-"));
+  TEMPORARY.push(dir);
+  mkdirSync(path.join(dir, "scripts"));
+  mkdirSync(path.join(dir, "ci"));
+  cpSync(path.join(SCRIPTS, "ci-stages.mjs"), path.join(dir, "scripts", "ci-stages.mjs"));
+  writeFileSync(path.join(dir, "ci", "pipeline.json"), JSON.stringify({ schemaVersion: "1.0.0", stages }), "utf8");
+  writeFileSync(path.join(dir, "stage-stub.cjs"), STAGE_STUB, "utf8");
+  return dir;
+}
+
+const RUNNER_ENV = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, CI_COMMIT_SHA: "fixture-sha", CI_BRANCH: "fixture" };
+
+/** Run the fixture's runner. Returns exit code, normalised streams, evidence and stage log. */
+async function runRunner(dir, argv = [], { cwd = dir } = {}) {
+  let code = 0;
+  let stdout = "";
+  let stderr = "";
+  try {
+    ({ stdout, stderr } = await run(process.execPath, [path.join(dir, "scripts", "ci-stages.mjs"), ...argv], { cwd, env: RUNNER_ENV }));
+  } catch (error) {
+    stdout = error.stdout ?? "";
+    stderr = error.stderr ?? "";
+    code = error.code;
+  }
+  const evidencePath = path.join(dir, "artifacts", "local-ci", "latest.json");
+  const evidence = existsSync(evidencePath) ? JSON.parse(readFileSync(evidencePath, "utf8")) : null;
+  const stageLogPath = path.join(dir, "stage.log");
+  const normalise = (t) => t.replace(/\d+ ms/g, "N ms").replace(/COMPLETED +\S+/g, "COMPLETED T");
+  if (evidence) {
+    for (const k of ["startedAt", "completedAt", "durationMs"]) delete evidence[k];
+    for (const c of evidence.checks) delete c.durationMs;
+  }
+  return {
+    code,
+    stdout: normalise(stdout),
+    stderr,
+    evidence,
+    stageLog: existsSync(stageLogPath) ? readFileSync(stageLogPath, "utf8") : "",
+    poisoned: existsSync(path.join(dir, "poison.marker")),
+  };
+}
+
+function resetRunner(dir) {
+  for (const p of ["stage.log", "artifacts", "poison.marker"]) rmSync(path.join(dir, p), { recursive: true, force: true });
+}
+
+/** Every way of handing the runner an external subject that we can think of, plus the generic ones. */
+function externalSubjectArgvs(subjectDir) {
+  const policy = path.join(subjectDir, "project-policy.yml");
+  const rogue = path.join(subjectDir, "rogue-pipeline.json");
+  return [
+    [policy],
+    [subjectDir],
+    [rogue],
+    ["--policy", policy, "--project-policy", policy],
+    ["--manifest", rogue, "--pipeline", rogue, "--config", rogue],
+    ["--dir", subjectDir, "--record", policy],
+    ["--verbose", policy, "--json", rogue],
+    [`--manifest=${rogue}`, `--root=${subjectDir}`],
+  ];
+}
+
+/** A subject declaring another framework version, and a rogue manifest that would leave a marker. */
+function makeRunnerSubject(fixture) {
+  const dir = makeExternalTarget("1.0.0");
+  writeFileSync(
+    path.join(fixture, "poison.cjs"),
+    "require('fs').writeFileSync(require('path').join(__dirname, 'poison.marker'), 'x');\n",
+    "utf8",
+  );
+  const rogue = {
+    schemaVersion: "1.0.0",
+    stages: [
+      {
+        id: "poison",
+        name: "Poison",
+        command: ["node", "poison.cjs"],
+      },
+    ],
+  };
+  writeFileSync(path.join(dir, "rogue-pipeline.json"), JSON.stringify(rogue), "utf8");
+  return dir;
+}
+
+test("ci-stages.mjs, executed: an external subject in any spelling changes nothing it does", async () => {
+  const fixture = makeRunnerFixture([stubStage("alpha"), stubStage("beta")]);
+  const subject = makeRunnerSubject(fixture);
+
+  const baseline = await runRunner(fixture);
+  assert.equal(baseline.code, 0, `the fixture pipeline must pass untouched: ${baseline.stderr}`);
+  assert.equal(baseline.evidence.result, "passed");
+  assert.deepEqual(
+    baseline.stageLog.trim().split("\n").map((l) => JSON.parse(l)),
+    [["alpha", []], ["beta", []]],
+    "control: both declared stages ran, and received no arguments",
+  );
+
+  for (const argv of externalSubjectArgvs(subject)) {
+    resetRunner(fixture);
+    const got = await runRunner(fixture, argv);
+    const label = argv.join(" ");
+    assert.equal(got.code, baseline.code, `exit code changed for: ${label}`);
+    assert.equal(got.poisoned, false, `a subject-named manifest was executed for: ${label}`);
+    assert.equal(got.stageLog, baseline.stageLog, `stages or their arguments changed for: ${label}`);
+    assert.deepEqual(got.evidence, baseline.evidence, `evidence record changed for: ${label}`);
+    // --verbose and --json are the two recognised flags and legitimately change PRESENTATION only.
+    if (!argv.includes("--verbose") && !argv.includes("--json")) {
+      assert.equal(got.stdout, baseline.stdout, `output changed for: ${label}`);
+    }
+  }
+});
+
+test("ci-stages.mjs, executed: its working directory is not a subject either", async () => {
+  const fixture = makeRunnerFixture([stubStage("alpha")]);
+  const subject = makeRunnerSubject(fixture);
+  const baseline = await runRunner(fixture);
+  resetRunner(fixture);
+  const fromSubject = await runRunner(fixture, [], { cwd: subject });
+  assert.equal(fromSubject.code, 0);
+  assert.deepEqual(fromSubject.evidence, baseline.evidence, "running from a subject's directory changed the record");
+  assert.equal(fromSubject.stageLog, baseline.stageLog);
+});
+
+test("ci-stages.mjs, executed: its record carries a pipeline result and nothing about a subject", async () => {
+  const fixture = makeRunnerFixture([stubStage("alpha"), stubStage("beta-fail"), stubStage("gamma")]);
+  const subject = makeRunnerSubject(fixture);
+
+  for (const argv of [[], ...externalSubjectArgvs(subject).slice(0, 2)]) {
+    resetRunner(fixture);
+    const got = await runRunner(fixture, argv);
+    assert.equal(got.code, 1, "a failing stage is a failing run");
+    assert.deepEqual(
+      Object.keys(got.evidence).sort(),
+      ["branch", "checks", "commit", "environment", "failedStage", "imageId", "node", "repository", "result", "schemaVersion"],
+      "the record's keys are a closed set; a new one is a new thing it can say and needs classifying here",
+    );
+    assert.deepEqual(
+      got.evidence.checks.map((c) => [c.id, c.result]),
+      [["alpha", "passed"], ["beta-fail", "failed"], ["gamma", "not-run"]],
+      "fail fast, and a stage that did not run is never recorded as passed",
+    );
+    for (const c of got.evidence.checks) {
+      assert.deepEqual(Object.keys(c).filter((k) => !["id", "name", "command", "result", "exitCode"].includes(k)), []);
+    }
+    assert.doesNotMatch(
+      JSON.stringify(got.evidence) + got.stdout,
+      /standardVersion|"score"|frameworkCoverage|evaluatedRules|disposition|finding|NON_COMPLIANT|COMPLIANT/,
+      "the runner said something about a subject's conduct",
+    );
+    assert.equal(got.stageLog.includes("gamma"), false, "a stage after the failure ran");
+  }
+});
+
+test("ci-stages.mjs, executed: an unreadable manifest is an invocation fault with no record", async () => {
+  const fixture = makeRunnerFixture([stubStage("alpha")]);
+  writeFileSync(path.join(fixture, "ci", "pipeline.json"), "{ not json", "utf8");
+  const got = await runRunner(fixture);
+  assert.equal(got.code, EXIT_INVOCATION);
+  assert.equal(got.evidence, null, "a run that never started must not leave a result behind");
+  assert.equal(got.stageLog, "");
+});
+
+test("ci-stages.mjs, executed: imported, it exposes no export (the export census, by execution)", async () => {
+  const fixture = makeRunnerFixture([stubStage("alpha")]);
+  const out = path.join(fixture, "exports.json");
+  const probe = path.join(fixture, "probe.mjs");
+  // Importing it RUNS it (there is no argv[1] guard), which is why this happens in the fixture. The
+  // namespace is read as soon as the import settles and written to a file, not stdout, because the
+  // runner calls process.exit when its pipeline completes.
+  writeFileSync(
+    probe,
+    `import { writeFileSync } from "node:fs";\n` +
+      `const ns = await import(${JSON.stringify(pathToFileURL(path.join(fixture, "scripts", "ci-stages.mjs")).href)});\n` +
+      `writeFileSync(${JSON.stringify(out)}, JSON.stringify({ keys: Object.keys(ns), default: "default" in ns }));\n`,
+    "utf8",
+  );
+  await run(process.execPath, [probe], { cwd: fixture, env: RUNNER_ENV }).catch(() => {});
+  assert.ok(existsSync(out), "the import did not settle before the runner exited, so the namespace was never read");
+  assert.deepEqual(JSON.parse(readFileSync(out, "utf8")), { keys: [], default: false });
+  assert.ok(
+    existsSync(path.join(fixture, "stage.log")),
+    "control: importing it did run the pipeline, so the fixture is exercising the real behaviour",
+  );
+});
+
+test("ci-stages.mjs, executed: the fixture runs the shipped file, byte for byte", () => {
+  const fixture = makeRunnerFixture([stubStage("alpha")]);
+  assert.equal(
+    readFileSync(path.join(fixture, "scripts", "ci-stages.mjs"), "utf8"),
+    readFileSync(path.join(SCRIPTS, "ci-stages.mjs"), "utf8"),
+    "an executed proof about a copy that differs from the shipped file proves nothing about it",
+  );
 });
