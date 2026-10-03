@@ -212,6 +212,101 @@ which is the shape of every failure above, moved up one level. A module added at
 would have produced evidence and been invisible to every test. The scope is derived now too: the
 repository is walked, and `scripts/` must be the only place executable code lives.
 
+**Amendment (ST-03): `ci-stages.mjs` is classified by execution, not by reading.** It was the one
+surface the census could neither run nor import, because it has no `argv[1]` guard and executes the
+whole pipeline, this suite included, on import. Its classification rested on two properties of its
+source (no exports, argv only consulted through two boolean `.includes()` calls). That is evidence
+about two properties, not behavioural proof, and it could not notice a route the patterns do not name.
+
+It is now run. `ROOT` in that file is derived from its own location, so the unmodified file is copied
+into a temporary tree beside a stub `ci/pipeline.json` and executed there: same bytes, different root,
+stub stages, no recursion. **No production code changed and no manifest-override input was added**,
+because an override would be an external input to the surface being shown to have none. The tests
+assert, by execution, that handing it an external subject (as a path, a directory, a rogue manifest, in
+`--flag value` and `--flag=value` forms, or as its working directory) changes none of: the stages run,
+the arguments they receive, its exit code, its output, its evidence record; that the record's keys are
+a closed set containing a pipeline result and nothing about a subject; that a failed stage stops the
+run and later stages are `not-run`, never `passed`; that an unreadable manifest is exit 2 with no
+record; and that importing it exposes no export (the export census, read by execution). A control
+asserts the fixture runs the shipped file byte for byte. The source-property test remains as a cheap
+tripwire and is no longer the ground of the classification.
+
+Mutations, each run against `scripts/ci-stages.mjs` and reverted:
+
+```text
+manifest path taken from argv             killed (tripwire and executed)
+add an export                             killed (tripwire and executed)
+forward positional args to stages         killed (tripwire and executed)
+manifest resolved from the cwd            killed by the executed cwd test only
+record gains a standardVersion key        killed by the executed record test only
+not-run recorded as passed                killed by the executed record test only
+remove fail-fast                          killed by the executed record test only
+--dir changes the working directory       survived: an equivalent mutant. Stages run with an
+                                          absolute cwd and the manifest and evidence paths are
+                                          absolute, so the chdir has no observable effect
+```
+
+What this does not establish: it is a finite set of spellings, not a proof over all inputs, and a
+future input that is not argv, cwd or the manifest (for example an environment variable that selects
+a manifest) is outside what is probed. Environment is deliberately not varied here.
+
+**Amendment (ST-04): the census now reaches files that are not JavaScript.** It globbed
+`.mjs`/`.cjs`/`.js`, so `package.json` scripts, `ci/pipeline.json`, `standards-adapter.json`, the
+workflow, the container recipe and the shell and PowerShell wrappers had never been asked whether
+they can establish a finding, disposition, score or verdict about a subject with no authority named.
+The answer has the same shape as everywhere else: a data file cannot judge, it can only *name* a
+command, so what is checked is where the names lead. All of it is derived, in
+`test/evidence-surface-census.test.mjs`:
+
+- **Scope.** The repository is walked and *every* file must be classified, not only files with an
+  extension someone listed. Anything starting with `#!` must be a classified wrapper whatever it is
+  called, so renaming a script does not hide it.
+- **Vocabulary.** Command-bearing keys (`command`, `arguments`, `entrypoint`, `scripts`, `bin`, `run`,
+  and similar) exist only in the three files classified as command manifests. A new JSON or YAML file
+  that starts launching things fails until it is classified.
+- **`package.json`.** Every script parses strictly (no shell composition, `node scripts/*.mjs` or this
+  suite only), reaches a script the CLI census classifies, and is *run* on an external subject
+  declaring another framework: verdict-bearing subcommands must exit 2 with empty output; `plan`,
+  `explain` and `init --dry-run` may run (ADR 0009 keeps them working) but must emit no verdict-shaped
+  figure. The subject has no betting policy or ledger on purpose, so only the project-level guard
+  can answer, which is the ground a second guard would otherwise mask.
+- **`ci/pipeline.json`.** Each stage is `npm run <script>` or `npm test` with no further token, so no
+  argument slot exists; the runner's side of that is proved by execution under ST-03.
+- **The adapter contract.** Its entrypoint must be a surface the CLI census classifies as refusing
+  subjects, `{target}` is the only placeholder, its own declared invocation is *run* against a subject
+  declaring `1.0.0` and must refuse silently, and against a current subject must return a status from
+  the contract's vocabulary. That vocabulary must equal `STATUS` in `compliance.mjs`.
+- **Workflow and container.** Every `run:` is the pipeline runner, the image's only `RUN` is the
+  known `apk add`, its `CMD` is the runner, and compose overrides no command.
+- **Wrappers.** Classified by **reading**, and recorded as such: executing them needs Docker or a push.
+  `test/local-ci.test.mjs` runs `submit-pr` against throwaway repositories; this file adds only a
+  tripwire that no wrapper launches a surface that interprets a subject. That is weaker than running,
+  and it is the one place this census still rests on inspection.
+
+Mutations, each applied and reverted, each killed by the test named for it:
+
+```text
+stray .sh not classified / shebang under a data-looking name   scope + shebang tests
+npm script composes a shell pipeline                           package.json sweep
+npm script hands arguments to an inert surface                 package.json sweep
+pipeline stage gains a {target} slot                           pipeline test
+adapter entrypoint swapped to an inert script                  adapter test
+adapter promises an extra status                               adapter test
+new JSON file with a command key                               vocabulary test
+workflow runs the validator on an input                        workflow/container test
+Dockerfile gains a build step                                  workflow/container test
+a wrapper calls the validator                                  wrapper tripwire
+gatherEvidence's guard removed                                 package.json sweep only
+```
+
+The last row is the reason the sweep's subject carries no betting policy. With one, removing that
+guard goes unnoticed, because the record, policy and verdict authorities still refuse; this is the same
+masking this ADR records for `checkDecisions`.
+
+Not covered: the semantics data (`rules/`, `schemas/`, policies) is classified as data on the ground
+that nothing in it can run, and is not otherwise examined; a change of *meaning* in it is the baseline
+and inventory tests' concern, not this census's.
+
 ### The input is a path, never a version string
 
 `declaredVersionRefusal` is handed a path to a `project-policy.yml` and opens it. A caller that
