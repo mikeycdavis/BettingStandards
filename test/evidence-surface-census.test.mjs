@@ -795,3 +795,287 @@ test("ci-stages.mjs, executed: the fixture runs the shipped file, byte for byte"
     "an executed proof about a copy that differs from the shipped file proves nothing about it",
   );
 });
+
+/* --------------------------------------------------------------------------------------------
+ * BEYOND JAVASCRIPT (ST-04).
+ *
+ * Everything above derives the census from `.mjs`/`.cjs`/`.js`. That left a class of surface that
+ * had never been asked whether it can establish a finding, disposition, score or verdict about an
+ * external subject with no authority named: files that are not JavaScript but SELECT or LAUNCH
+ * JavaScript (`package.json` scripts, `ci/pipeline.json`, the adapter contract, the workflow, the
+ * container recipe, the shell and PowerShell wrappers) and files that supply SEMANTICS (rules,
+ * schemas, policies).
+ *
+ * THE QUESTION IS THE SAME ONE, so the answer has the same shape. A file that is data cannot judge
+ * anything; what it can do is NAME a command, and a command is only as safe as the JavaScript surface
+ * it reaches, which is already classified above. So three things are derived and checked here, none
+ * of them recalled:
+ *
+ *   1. SCOPE. The repository is walked and EVERY file must be classified, not only the ones with an
+ *      extension somebody thought to list. A file with a shebang must be a classified wrapper
+ *      whatever it is called, so renaming a script cannot hide it.
+ *   2. REACH. Every command a non-JS file can name must resolve to a surface classified above, with
+ *      no slot through which a subject could be handed in, except the one place a subject is
+ *      meant to arrive (the adapter's `{target}`), which is run and must refuse without authority.
+ *   3. VOCABULARY. Command-bearing keys exist only in the files classified as command manifests, so
+ *      a new JSON file that starts launching things fails here until somebody classifies it.
+ *
+ * WHAT IS CLASSIFIED BY READING, AND SAY SO: the shell and PowerShell wrappers. Executing them needs
+ * Docker or a push, which a unit suite cannot do; test/local-ci.test.mjs exercises submit-pr by
+ * running it against throwaway repositories, and this file adds a mechanical tripwire that they
+ * name no surface which interprets a subject. That is weaker than running and is recorded as such.
+ * ------------------------------------------------------------------------------------------ */
+
+/** Ordered: the first match wins. `kind` selects which checks below apply. */
+const NON_JS_CENSUS = [
+  { kind: "package-manifest", match: /^package\.json$/, why: "scripts and bin: names commands, takes no subject itself." },
+  { kind: "pipeline-manifest", match: /^ci\/pipeline\.json$/, why: "the stage list. Each stage is an npm script of this repository with no argument slot." },
+  { kind: "adapter-contract", match: /^standards-adapter\.json$/, why: "how an enforcer invokes this pack. The one place a subject (`{target}`) is meant to arrive." },
+  { kind: "workflow", match: /^\.github\/workflows\/[^/]+\.ya?ml$/, why: "runs the pipeline runner and nothing else." },
+  { kind: "container-recipe", match: /^(Dockerfile\.ci|compose\.ci\.yml|\.dockerignore)$/, why: "builds the CI image and runs the pipeline runner." },
+  { kind: "wrapper", match: /^scripts\/[^/]+\.(sh|ps1)$/, why: "orchestrates docker, git and gh around the pipeline. Names no surface that interprets a subject." },
+  {
+    kind: "semantics-data",
+    match: /^(rules\/[^/]+\.json|schemas\/[^/]+\.json|betting-policy\.yml|project-policy\.yml|artifacts\/standards-source-inventory\.json|standards-adapter\.json)$/,
+    why: "data that the guarded loaders read. A file cannot judge a subject; what reads it can, and is classified above.",
+  },
+  { kind: "template-or-example", match: /^(templates|examples)\//, why: "copied into adopting projects, or worked examples read by the guarded checks." },
+  { kind: "fixture", match: /^test\/fixtures\//, why: "test inputs." },
+  { kind: "prose", match: /\.(md|mmd)$|^(VERSION|\.gitignore|\.gitattributes)$|^standards\/|^design\//, why: "documentation and metadata. Not read as input to any evaluation." },
+];
+
+/** `artifacts/local-ci/` is transient output the pipeline writes; it is gitignored and not source. */
+const WALK_SKIP = new Set([".git", "node_modules", "local-ci"]);
+
+function walkAll(dir = ROOT, rel = "") {
+  const files = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (WALK_SKIP.has(entry.name)) continue;
+    const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
+    if (entry.isDirectory()) files.push(...walkAll(path.join(dir, entry.name), childRel));
+    else files.push(childRel);
+  }
+  return files;
+}
+
+const JS_FILE = /\.(mjs|cjs|js)$/;
+const kindOf = (rel) => NON_JS_CENSUS.find((e) => e.match.test(rel))?.kind ?? null;
+const readRel = (rel) => readFileSync(path.join(ROOT, rel), "utf8");
+const filesOfKind = (kind) => walkAll().filter((f) => kindOf(f) === kind);
+
+test("beyond JS: every file in the repository is classified, and every classification matches a file", () => {
+  const all = walkAll();
+  const unclassified = all.filter((f) => !JS_FILE.test(f) && kindOf(f) === null);
+  assert.deepEqual(
+    unclassified.sort(),
+    [],
+    "these files are not classified. A new file that is not JavaScript can still name or launch JavaScript, " +
+      "so it needs a kind here, and a kind's checks apply to it",
+  );
+  const phantom = NON_JS_CENSUS.filter((e) => !all.some((f) => e.match.test(f))).map((e) => String(e.match));
+  assert.deepEqual(phantom, [], "these classifications match no file");
+  for (const e of NON_JS_CENSUS) assert.ok(e.why, `${e.kind} is classified with no reason recorded`);
+});
+
+test("beyond JS: anything with a shebang is a classified wrapper or JavaScript, whatever it is called", () => {
+  const stray = [];
+  for (const f of walkAll()) {
+    if (JS_FILE.test(f) || /\.(md|json)$/.test(f)) continue;
+    const head = readFileSync(path.join(ROOT, f)).subarray(0, 2).toString("latin1");
+    if (head === "#!" && kindOf(f) !== "wrapper") stray.push(`${f} (${kindOf(f)})`);
+  }
+  assert.deepEqual(stray, [], "an executable script is hiding under a kind that implies it is data");
+});
+
+test("beyond JS: command-bearing keys exist only in files classified as command manifests", () => {
+  const COMMAND_KEYS = new Set(["command", "commands", "arguments", "entrypoint", "script", "scripts", "run", "exec", "bin", "hooks"]);
+  const found = (value, file, out = []) => {
+    if (Array.isArray(value)) value.forEach((v) => found(v, file, out));
+    else if (value && typeof value === "object") {
+      for (const [k, v] of Object.entries(value)) {
+        if (COMMAND_KEYS.has(k)) out.push(`${file}:${k}`);
+        found(v, file, out);
+      }
+    }
+    return out;
+  };
+  const carriers = new Set(["package-manifest", "pipeline-manifest", "adapter-contract"]);
+  const unexpected = [];
+  for (const f of walkAll().filter((x) => x.endsWith(".json"))) {
+    if (carriers.has(kindOf(f))) continue;
+    unexpected.push(...found(JSON.parse(readRel(f)), f));
+  }
+  assert.deepEqual(unexpected, [], "a JSON file launches commands but is not classified as a command manifest");
+
+  const yamlLaunchers = [];
+  for (const f of walkAll().filter((x) => /\.ya?ml$/.test(x))) {
+    if (["workflow", "container-recipe"].includes(kindOf(f))) continue;
+    if (/^\s*(run|command|entrypoint|script):/m.test(readRel(f))) yamlLaunchers.push(f);
+  }
+  assert.deepEqual(yamlLaunchers, [], "a YAML file launches commands but is not classified as a launcher");
+
+  // The control: the carriers do carry them, so the scan above is looking at something real.
+  for (const f of ["package.json", "ci/pipeline.json", "standards-adapter.json"]) {
+    assert.ok(found(JSON.parse(readRel(f)), f).length > 0, `${f} should carry a command key`);
+  }
+});
+
+/** What an npm script runs, parsed strictly: anything it cannot parse is a failure, not a pass. */
+function parseNpmScript(name, command) {
+  assert.doesNotMatch(command, /[;&|`$<>(){}]/, `package.json script '${name}' composes shell commands: ${command}`);
+  const tokens = command.trim().split(/\s+/);
+  assert.equal(tokens[0], "node", `package.json script '${name}' does not run node: ${command}`);
+  if (tokens[1] === "--test") return { file: null, args: tokens.slice(2), testRunner: true };
+  assert.match(tokens[1], /^scripts\/[\w-]+\.mjs$/, `package.json script '${name}' runs something outside scripts/: ${command}`);
+  return { file: tokens[1].slice("scripts/".length), args: tokens.slice(2), testRunner: false };
+}
+
+const VERDICT_VOCABULARY = /"score"|"standardVersion"|NON_COMPLIANT|COMPLIANT|"verdict"|frameworkCoverage|evaluatedRules/;
+
+test("beyond JS: every package.json script reaches a classified surface, and run on an external subject it refuses or says nothing", async () => {
+  const pkg = JSON.parse(readRel("package.json"));
+  // No betting policy and no ledger, on purpose: the other authorities (records, policy, verdict) have
+  // nothing to open here, so the refusal can only come from the project-level guard. With a betting
+  // policy present, removing that guard goes unnoticed because a second guard answers for it (ADR 0009).
+  const target = makeExternalTarget("1.0.0");
+
+  // `bin` is a second way in; it must name a classified script too.
+  for (const [name, file] of Object.entries(pkg.bin ?? {})) {
+    assert.match(file, /^scripts\/[\w-]+\.mjs$/, `bin '${name}' points outside scripts/`);
+    assert.ok(CLI_CENSUS[file.slice("scripts/".length)], `bin '${name}' names an unclassified script`);
+  }
+
+  const VERDICT_BEARING = new Set(["status", "check", "audit", "validate"]);
+  const ran = [];
+  for (const [name, command] of Object.entries(pkg.scripts)) {
+    const { file, args, testRunner } = parseNpmScript(name, command);
+    if (testRunner) {
+      assert.deepEqual(args, ["test/*.test.mjs"], `'${name}' runs a test set other than this repository's own suite`);
+      continue;
+    }
+    const spec = CLI_CENSUS[file];
+    assert.ok(spec, `package.json script '${name}' reaches '${file}', which the CLI census does not classify`);
+    const script = path.join(SCRIPTS, file);
+
+    if (spec.expect === "inert") {
+      // An inert surface takes no subject, so the script that launches it must not carry a slot for one.
+      assert.deepEqual(args, [], `'${name}' hands arguments to '${file}', which is classified as taking none`);
+      continue;
+    }
+
+    // A surface that interprets subjects: run the script's own command with the subject put where
+    // the script's own target goes (`.`, or appended where the script has none).
+    const withTarget = args.includes(".") ? args.map((a) => (a === "." ? target : a)) : [...args, target];
+    if (file === "standards.mjs") {
+      const sub = args[0];
+      if (sub === "init") withTarget.push("--dry-run");
+      const { code, stdout } = await cli(script, ...withTarget, ...(sub === "explain" ? [] : ["--json"]));
+      if (VERDICT_BEARING.has(sub)) {
+        assert.equal(code, EXIT_INVOCATION, `package script '${name}' did not refuse a subject declaring another framework`);
+        assert.equal(stdout.trim(), "", `package script '${name}' printed output for a subject with no authority`);
+      } else {
+        // plan / explain / init preview or look up; ADR 0009 keeps them working. What they must never do is
+        // carry a verdict or a figure about the subject.
+        assert.doesNotMatch(stdout, VERDICT_VOCABULARY, `package script '${name}' emitted a verdict-shaped figure about a subject`);
+      }
+    } else {
+      const { code, stdout } = await cli(script, ...spec.argv(target));
+      assert.equal(code, EXIT_INVOCATION, `package script '${name}' (${file}) did not refuse an external subject`);
+      assert.equal(stdout.trim(), "");
+    }
+    ran.push(name);
+  }
+  // The control: the sweep reached the verdict-bearing scripts, so a loop that skipped everything fails.
+  for (const must of ["validate", "audit", "status", "check", "plan", "policy"]) {
+    assert.ok(ran.includes(must), `the package.json sweep never ran '${must}'`);
+  }
+});
+
+test("beyond JS: ci/pipeline.json stages are this repository's own npm scripts with no slot for a subject", () => {
+  const pkg = JSON.parse(readRel("package.json"));
+  const manifest = JSON.parse(readRel("ci/pipeline.json"));
+  const ids = manifest.stages.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length, "stage ids must be unique");
+
+  for (const stage of manifest.stages) {
+    const [npm, verb, script, ...extra] = stage.command;
+    assert.equal(npm, "npm", `stage '${stage.id}' does not run npm: ${stage.command.join(" ")}`);
+    assert.deepEqual(extra, [], `stage '${stage.id}' passes arguments, which is a slot a subject could arrive through`);
+    const scriptName = verb === "test" ? "test" : verb === "run" ? script : null;
+    assert.ok(scriptName && pkg.scripts[scriptName], `stage '${stage.id}' names an npm script that does not exist: ${stage.command.join(" ")}`);
+    assert.ok(verb === "test" ? script === undefined : true, `stage '${stage.id}' has stray tokens`);
+    // It resolves to a surface the census classifies (parseNpmScript fails on anything it cannot read).
+    const parsed = parseNpmScript(scriptName, pkg.scripts[scriptName]);
+    if (!parsed.testRunner) assert.ok(CLI_CENSUS[parsed.file], `stage '${stage.id}' reaches an unclassified script '${parsed.file}'`);
+    assert.doesNotMatch(JSON.stringify(stage), /\{target\}|\$\{|%\w+%/, `stage '${stage.id}' has a placeholder a subject could fill`);
+  }
+  // The runner passes a stage nothing beyond this list. That is proved by execution in the tests above
+  // ('an external subject in any spelling changes nothing it does': every stage received no arguments).
+});
+
+test("beyond JS: the adapter contract refuses an external subject without authority, and speaks only this pack's vocabulary", async () => {
+  const adapter = JSON.parse(readRel("standards-adapter.json"));
+  const { STATUS } = await import(pathToFileURL(path.join(SCRIPTS, "compliance.mjs")).href);
+
+  // Derived link to the CLI census: the entrypoint is a surface classified as refusing subjects.
+  const entry = adapter.evaluation.entrypoint;
+  assert.match(entry, /^scripts\/[\w-]+\.mjs$/);
+  assert.equal(CLI_CENSUS[entry.slice("scripts/".length)]?.expect, "refuse", "the adapter's entrypoint must be a surface that demands an authority");
+
+  // `{target}` is the only slot, and appears exactly once.
+  const slots = adapter.evaluation.arguments.filter((a) => a.includes("{"));
+  assert.deepEqual(slots, ["{target}"], "the contract has a placeholder other than {target}, or none");
+
+  const argvFor = (dir) => adapter.evaluation.arguments.map((a) => (a === "{target}" ? dir : a));
+
+  // Run as declared, on a subject declaring another framework: refuse, say nothing.
+  const stale = makeSubject(`standardVersion: "1.0.0"\nproject: "stale"\nexceptions: []\n`);
+  const refused = await cli(path.join(ROOT, entry), ...argvFor(stale));
+  assert.equal(refused.code, EXIT_INVOCATION, "the adapter's own invocation judged a subject with no authority");
+  assert.equal(refused.stdout.trim(), "", "and emitted something about it");
+
+  // And with authority established it evaluates, with a status from the declared vocabulary: the control.
+  const current = makeSubject(`standardVersion: "${PACK_VERSION}"\nproject: "current"\nexceptions: []\n`);
+  const evaluated = await cli(path.join(ROOT, entry), ...argvFor(current));
+  assert.notEqual(evaluated.code, EXIT_INVOCATION, "the adapter's invocation refused a subject that did establish authority");
+  assert.ok(adapter.result.statuses.includes(JSON.parse(evaluated.stdout).status), "the result's status is outside the contract's own vocabulary");
+
+  // The vocabulary is this pack's, not a second one. A contract that promised a status the evaluator
+  // cannot produce, or that passes one it never defined, would let an enforcer report a verdict nobody gave.
+  assert.deepEqual([...adapter.result.statuses].sort(), Object.values(STATUS).sort(), "contract statuses differ from compliance.mjs STATUS");
+  for (const passing of adapter.result.passing) assert.ok(adapter.result.statuses.includes(passing), `'${passing}' is passing but not a declared status`);
+});
+
+test("beyond JS: the workflow and container recipe run the pipeline runner and nothing that interprets a subject", () => {
+  for (const f of filesOfKind("workflow")) {
+    const runs = [...readRel(f).matchAll(/^\s*(?:-\s*)?run:\s*(.+)$/gm)].map((m) => m[1].trim());
+    assert.ok(runs.length > 0, `${f}: control — it should have a run step`);
+    for (const r of runs) {
+      assert.match(r, /^node scripts\/ci-stages\.mjs( --verbose| --json)*$|^\.\/scripts\/ci\.sh$/, `${f} runs something other than the pipeline runner: ${r}`);
+    }
+  }
+  const docker = readRel("Dockerfile.ci");
+  const dockerRuns = [...docker.matchAll(/^RUN\s+(.+)$/gm)].map((m) => m[1].trim());
+  assert.deepEqual(dockerRuns, ["apk add --no-cache git"], "the CI image runs a build step that is not the known one");
+  assert.match(docker, /^CMD \["node", "scripts\/ci-stages\.mjs"\]$/m, "the image's default command is not the pipeline runner");
+  const compose = readRel("compose.ci.yml");
+  for (const m of compose.matchAll(/^\s+(?:command|entrypoint):\s*(.+)$/gm)) {
+    assert.fail(`compose.ci.yml overrides the container command: ${m[1]}`);
+  }
+});
+
+test("beyond JS: the wrappers name no surface that interprets a subject (classified by reading, and said so)", () => {
+  const wrappers = filesOfKind("wrapper");
+  assert.ok(wrappers.length >= 4, "control: ci.sh, ci.ps1, submit-pr.sh and submit-pr.ps1 should all be found");
+  const interpreters = Object.entries(CLI_CENSUS).filter(([, s]) => s.expect === "refuse").map(([f]) => f.replace(/\./g, "\\."));
+  const reaches = new RegExp(`scripts[\\\\/](${interpreters.join("|")})|\\bnpm (run|test)\\b|\\bstandards (validate|audit|status|check)\\b`);
+  for (const f of wrappers) {
+    // Comments are prose: only executable lines count (PowerShell block comments are stripped first).
+    const code = readRel(f)
+      .replace(/<#[\s\S]*?#>/g, "")
+      .split(/\r?\n/)
+      .filter((l) => !/^\s*#/.test(l))
+      .join("\n");
+    assert.doesNotMatch(code, reaches, `${f} launches a surface that interprets a subject`);
+  }
+});
