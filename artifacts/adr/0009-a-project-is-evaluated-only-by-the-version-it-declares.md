@@ -285,9 +285,20 @@ command, so what is checked is where the names lead. All of it is derived, in
   betting policy or ledger on purpose, so only the project-level guard can answer, which is the ground
   a second guard would otherwise mask. The one exception is `standards check`, which refuses a
   directory without a betting policy before it reaches the guard: it is run against a copy of the
-  subject that has one, so the guard is what answers. There a second guard inside `checkLedger` says
-  the same sentence, so the sweep proves `check` refuses with the guard's diagnostic, not that each of
-  the two guards is individually present.
+  subject that has one, so a guard is what answers. Which guard it is: `standards check` calls
+  `checkDecisions`, whose own guard speaks first, before the ledger is read. The subject has no ledger,
+  so `checkDecisions` returns at its missing-ledger branch and never calls `checkLedger` or
+  `checkRecord`. The sweep therefore **does** distinguish removal of `checkDecisions`' guard (the
+  command would then succeed instead of refusing), and it does **not** reach `checkLedger`'s or
+  `checkRecord`'s guard at all; those two are held by direct-call tests in
+  `test/policy-authority.test.mjs`. What masks what is the betting policy, not the ledger: with a
+  betting policy present, `gatherEvidence`'s guard is answered for by `checkDecisions`' on
+  `validate`, `audit` and `status`, which is why their subject has none.
+  The refusal is asserted **whole**. Exit 2 with empty stdout is also what a command returns when it
+  says the guard's sentence and then carries on to a later missing-file, missing-policy or usage
+  failure, and its stderr still contains the sentence; so stderr must equal the command's name and the
+  guard's complete diagnostic, and nothing before or after it. Which guard is distinguished and which
+  is not was measured by mutating each one separately (see the table below).
 - **`ci/pipeline.json`.** Each stage is `npm run <script>` or `npm test` with no further token, so no
   argument slot exists; the runner's side of that is proved by execution under ST-03.
 - **The adapter contract.** Its entrypoint must be a surface the CLI census classifies as refusing
@@ -334,8 +345,26 @@ gatherEvidence's guard removed                                 package.json swee
 ```
 
 The last row is the reason the sweep's subject carries no betting policy. With one, removing that
-guard goes unnoticed, because the record, policy and verdict authorities still refuse; this is the same
-masking this ADR records for `checkDecisions`.
+guard goes unnoticed on `validate`, `audit` and `status`, because `checkDecisions`' guard still
+refuses with the same sentence. That masking is by `checkDecisions`, not by `checkLedger`.
+
+Measured per guard, removing exactly one at a time and running `test/evidence-surface-census.test.mjs`
+alone, then the whole suite for any that survived it:
+
+```text
+guard removed                         census file       whole suite
+checkDecisions                        killed            killed
+gatherEvidence (standards.mjs)        killed            killed
+checkPolicy (policy.mjs)              killed            killed
+evaluate (compliance.mjs)             killed            killed
+checkLedger                           survived          killed by policy-authority.test.mjs
+checkRecord                           survived          killed by policy-authority.test.mjs
+command prints the guard, then more   killed (3 of 3: standards, policy, decisions)
+guard message truncated               killed (tail dropped; body lines dropped)
+```
+
+`checkLedger` and `checkRecord` survive the census file because the subject has no ledger, and that is
+a recorded limit of the sweep, not an oversight: they are unreachable from it.
 
 Not covered: the semantics data (`rules/`, `schemas/`, policies) is classified as data on the ground
 that nothing in it can run, and is not otherwise examined; a change of *meaning* in it is the baseline
