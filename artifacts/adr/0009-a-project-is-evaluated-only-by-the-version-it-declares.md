@@ -260,13 +260,21 @@ command, so what is checked is where the names lead. All of it is derived, in
 
 - **Scope.** The repository is walked and *every* file must be classified, not only files with an
   extension someone listed. Anything starting with `#!` must be a classified wrapper whatever it is
-  called, so renaming a script does not hide it.
+  called, so renaming a script does not hide it. No extension exempts a file from that check: a
+  tracked `docs/validate.md` or `data.json` that begins with a shebang is a failure, not prose. Only
+  JavaScript is skipped, because the JavaScript census owns it. What this does not establish: a
+  file with no shebang that is executed some other way (an interpreter named by a wrapper) is
+  reached only through the wrappers' own tripwire, and the executable bit in git is not examined.
 - **Vocabulary.** Command-bearing keys (`command`, `arguments`, `entrypoint`, `scripts`, `bin`, `run`,
   and similar) exist only in the three files classified as command manifests. A new JSON or YAML file
   that starts launching things fails until it is classified.
 - **`package.json`.** Every script parses strictly (no shell composition, `node scripts/*.mjs` or this
-  suite only), reaches a script the CLI census classifies, and is *run* on an external subject
-  declaring another framework: verdict-bearing subcommands must exit 2 with empty output; `plan`,
+  suite only), reaches a script the CLI census classifies, and is *run* with the script's own parsed
+  arguments, plus the subject, on an external subject declaring another framework. A script that
+  carries an argument the census does not model for a refusing surface (a subject path of its own,
+  `--record`, `--project-policy`, any flag not listed for that surface) fails the sweep instead of
+  being replaced by the canonical invocation, and an exit 2 caused by a usage error is not accepted
+  as the authority's refusal. For `standards.mjs` the parsed arguments were already used: verdict-bearing subcommands must exit 2 with empty output; `plan`,
   `explain` and `init --dry-run` may run (ADR 0009 keeps them working) but must emit no verdict-shaped
   figure. The subject has no betting policy or ledger on purpose, so only the project-level guard
   can answer, which is the ground a second guard would otherwise mask.
@@ -276,8 +284,14 @@ command, so what is checked is where the names lead. All of it is derived, in
   subjects, `{target}` is the only placeholder, its own declared invocation is *run* against a subject
   declaring `1.0.0` and must refuse silently, and against a current subject must return a status from
   the contract's vocabulary. That vocabulary must equal `STATUS` in `compliance.mjs`.
-- **Workflow and container.** Every `run:` is the pipeline runner, the image's only `RUN` is the
-  known `apk add`, its `CMD` is the runner, and compose overrides no command.
+- **Workflow and container.** Every `run:` is the pipeline runner, and every `uses:` is one of three
+  recorded actions (`actions/checkout`, `actions/setup-node`, `actions/upload-artifact`) pinned to a
+  major version and given only its recorded inputs, with the artifact upload pointed only at the
+  runner's own evidence record. A local, composite, Docker, unlisted or unpinned action, an
+  unrecorded input, and a job `container:` or `services:` all fail. The actions are classified by
+  that allowlist and by reading, not run: what third-party action code does inside GitHub's runner
+  is not observed here, only that nothing outside the list can be added unnoticed. The image's only
+  `RUN` is the known `apk add`, its `CMD` is the runner, and compose overrides no command.
 - **Wrappers.** Classified by **reading**, and recorded as such: executing them needs Docker or a push.
   `test/local-ci.test.mjs` runs `submit-pr` against throwaway repositories; this file adds only a
   tripwire that no wrapper launches a surface that interprets a subject. That is weaker than running,
@@ -294,6 +308,10 @@ adapter entrypoint swapped to an inert script                  adapter test
 adapter promises an extra status                               adapter test
 new JSON file with a command key                               vocabulary test
 workflow runs the validator on an input                        workflow/container test
+workflow gains a local/Docker/third-party `uses:` step         workflow scan fixtures
+workflow action given an unrecorded input or path              workflow scan fixtures
+shebang under a .md/.json name exempted again                  shebang scan fixtures
+package sweep runs the canonical argv, not the script's own    package sweep fixtures
 Dockerfile gains a build step                                  workflow/container test
 a wrapper calls the validator                                  wrapper tripwire
 gatherEvidence's guard removed                                 package.json sweep only

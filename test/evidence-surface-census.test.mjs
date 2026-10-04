@@ -115,6 +115,10 @@ const CLI_CENSUS = {
   },
   "decisions.mjs": {
     expect: "refuse",
+    // Value-less flags a package script may carry without changing what subject is interpreted. Anything
+    // else a script hands this surface (a path, `--record`, `--project-policy`) is not modelled here and
+    // fails the package sweep until somebody classifies it.
+    flags: ["--json", "--dry-run"],
     argv: (target) => [
       "--dir", path.join(target, "ledger"),
       "--policy", path.join(target, "betting-policy.yml"),
@@ -123,6 +127,7 @@ const CLI_CENSUS = {
   },
   "policy.mjs": {
     expect: "refuse",
+    flags: ["--json"],
     argv: (target) => [path.join(target, "project-policy.yml")],
   },
   "inventory.mjs": { expect: "inert", why: "compares this repository's own standards documents against its own rule catalog." },
@@ -877,14 +882,62 @@ test("beyond JS: every file in the repository is classified, and every classific
   for (const e of NON_JS_CENSUS) assert.ok(e.why, `${e.kind} is classified with no reason recorded`);
 });
 
-test("beyond JS: anything with a shebang is a classified wrapper or JavaScript, whatever it is called", () => {
+/**
+ * Files under `root` that start with `#!` yet are not a classified wrapper, whatever their name or
+ * extension. JavaScript is skipped because the JavaScript census (and the scope test above) owns it.
+ */
+function findShebangStrays(root = ROOT) {
   const stray = [];
-  for (const f of walkAll()) {
-    if (JS_FILE.test(f) || /\.(md|json)$/.test(f)) continue;
-    const head = readFileSync(path.join(ROOT, f)).subarray(0, 2).toString("latin1");
+  for (const f of walkAll(root)) {
+    // No extension exempts a file: `docs/validate.md` with a shebang is launched like any script. Only
+    // JavaScript is skipped, because its own census owns it.
+    if (JS_FILE.test(f)) continue;
+    const head = readFileSync(path.join(root, f)).subarray(0, 2).toString("latin1");
     if (head === "#!" && kindOf(f) !== "wrapper") stray.push(`${f} (${kindOf(f)})`);
   }
-  assert.deepEqual(stray, [], "an executable script is hiding under a kind that implies it is data");
+  return stray;
+}
+
+test("beyond JS: anything with a shebang is a classified wrapper or JavaScript, whatever it is called", () => {
+  assert.deepEqual(findShebangStrays(), [], "an executable script is hiding under a kind that implies it is data");
+});
+
+/** A throwaway tree holding the given files, for exercising the scans on inputs the repository lacks. */
+function makeTree(files) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bs-tree-"));
+  TEMPORARY.push(dir);
+  for (const [rel, body] of Object.entries(files)) {
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), body, "utf8");
+  }
+  return dir;
+}
+
+test("shebang scan: a shebang under a prose or data extension is a stray (docs/validate.md, data.json)", () => {
+  const tree = makeTree({
+    "docs/validate.md": "#!/usr/bin/env node\nconsole.log('judging');\n",
+    "docs/validate.mmd": "#!/usr/bin/env sh\necho hi\n",
+    "rules/hidden.json": "#!/usr/bin/env sh\necho hi\n",
+    "standards/00-note.md": "#!/bin/sh\n",
+  });
+  assert.deepEqual(
+    findShebangStrays(tree).map((s) => s.split(" ")[0]).sort(),
+    ["docs/validate.md", "docs/validate.mmd", "rules/hidden.json", "standards/00-note.md"],
+  );
+});
+
+test("shebang scan: prose that merely mentions a shebang, and classified wrappers, are not strays", () => {
+  const tree = makeTree({
+    "docs/plain.md": "# Plain prose\n\nNo executable here.\n",
+    "docs/mention.md": "Run it as `#!/usr/bin/env node` at the top.\n#!/not/at/the/start\n",
+    "docs/leading-blank.md": "\n#!/usr/bin/env node\n",
+    "docs/empty.md": "",
+    "scripts/ci.sh": "#!/usr/bin/env sh\necho ok\n",
+    "scripts/run.ps1": "#!/usr/bin/env pwsh\nWrite-Output ok\n",
+    "scripts/tool.mjs": "#!/usr/bin/env node\nexport {};\n",
+    "package.json": "{}\n",
+  });
+  assert.deepEqual(findShebangStrays(tree), []);
 });
 
 test("beyond JS: command-bearing keys exist only in files classified as command manifests", () => {
@@ -932,19 +985,15 @@ function parseNpmScript(name, command) {
 
 const VERDICT_VOCABULARY = /"score"|"standardVersion"|NON_COMPLIANT|COMPLIANT|"verdict"|frameworkCoverage|evaluatedRules/;
 
-test("beyond JS: every package.json script reaches a classified surface, and run on an external subject it refuses or says nothing", async () => {
-  const pkg = JSON.parse(readRel("package.json"));
-  // No betting policy and no ledger, on purpose: the other authorities (records, policy, verdict) have
-  // nothing to open here, so the refusal can only come from the project-level guard. With a betting
-  // policy present, removing that guard goes unnoticed because a second guard answers for it (ADR 0009).
-  const target = makeExternalTarget("1.0.0");
-
-  // `bin` is a second way in; it must name a classified script too.
-  for (const [name, file] of Object.entries(pkg.bin ?? {})) {
-    assert.match(file, /^scripts\/[\w-]+\.mjs$/, `bin '${name}' points outside scripts/`);
-    assert.ok(CLI_CENSUS[file.slice("scripts/".length)], `bin '${name}' names an unclassified script`);
-  }
-
+/**
+ * Run every script of `pkg` the way `npm run` would — with the script's OWN parsed arguments — against
+ * `target`, an external subject declaring another framework. `exec(scriptPath, ...argv)` is injected so
+ * the argv that is actually executed can be observed.
+ *
+ * Returns the names of the scripts that were run. Throws (AssertionError) on any script it cannot
+ * account for: failing closed is the point, so a changed script is a failed sweep until classified.
+ */
+async function sweepPackageScripts(pkg, target, exec = cli) {
   const VERDICT_BEARING = new Set(["status", "check", "audit", "validate"]);
   const ran = [];
   for (const [name, command] of Object.entries(pkg.scripts)) {
@@ -969,7 +1018,7 @@ test("beyond JS: every package.json script reaches a classified surface, and run
     if (file === "standards.mjs") {
       const sub = args[0];
       if (sub === "init") withTarget.push("--dry-run");
-      const { code, stdout } = await cli(script, ...withTarget, ...(sub === "explain" ? [] : ["--json"]));
+      const { code, stdout } = await exec(script, ...withTarget, ...(sub === "explain" ? [] : ["--json"]));
       if (VERDICT_BEARING.has(sub)) {
         assert.equal(code, EXIT_INVOCATION, `package script '${name}' did not refuse a subject declaring another framework`);
         assert.equal(stdout.trim(), "", `package script '${name}' printed output for a subject with no authority`);
@@ -979,16 +1028,98 @@ test("beyond JS: every package.json script reaches a classified surface, and run
         assert.doesNotMatch(stdout, VERDICT_VOCABULARY, `package script '${name}' emitted a verdict-shaped figure about a subject`);
       }
     } else {
-      const { code, stdout } = await cli(script, ...spec.argv(target));
+      // The script's OWN parsed arguments are what runs. The canonical subject-bearing arguments are
+      // appended only after every argument the script carries has been accounted for: a script that
+      // gained a flag, a path or a subject of its own is not the call this census modelled, and testing
+      // the canonical call instead would pass for a command nobody ran.
+      const unmodelled = args.filter((a) => !(spec.flags ?? []).includes(a));
+      assert.deepEqual(unmodelled, [], `package script '${name}' hands '${file}' arguments the census does not model`);
+      const { code, stdout, stderr } = await exec(script, ...args, ...spec.argv(target));
       assert.equal(code, EXIT_INVOCATION, `package script '${name}' (${file}) did not refuse an external subject`);
       assert.equal(stdout.trim(), "");
+      // Exit 2 is also what a usage error returns; the refusal must be the authority's, not a bad flag's.
+      assert.doesNotMatch(stderr ?? "", /unknown flag|unexpected argument/, `package script '${name}' failed on its arguments, not on the subject's authority`);
     }
     ran.push(name);
   }
+  return ran;
+}
+
+test("beyond JS: every package.json script reaches a classified surface, and run on an external subject it refuses or says nothing", async () => {
+  const pkg = JSON.parse(readRel("package.json"));
+  // No betting policy and no ledger, on purpose: the other authorities (records, policy, verdict) have
+  // nothing to open here, so the refusal can only come from the project-level guard. With a betting
+  // policy present, removing that guard goes unnoticed because a second guard answers for it (ADR 0009).
+  const target = makeExternalTarget("1.0.0");
+
+  // `bin` is a second way in; it must name a classified script too.
+  for (const [name, file] of Object.entries(pkg.bin ?? {})) {
+    assert.match(file, /^scripts\/[\w-]+\.mjs$/, `bin '${name}' points outside scripts/`);
+    assert.ok(CLI_CENSUS[file.slice("scripts/".length)], `bin '${name}' names an unclassified script`);
+  }
+
+  const ran = await sweepPackageScripts(pkg, target);
   // The control: the sweep reached the verdict-bearing scripts, so a loop that skipped everything fails.
   for (const must of ["validate", "audit", "status", "check", "plan", "policy"]) {
     assert.ok(ran.includes(must), `the package.json sweep never ran '${must}'`);
   }
+});
+
+test("package sweep: a refusing surface is executed with its script's own parsed arguments", async () => {
+  const target = makeExternalTarget("1.0.0");
+  const seen = [];
+  const exec = async (script, ...argv) => {
+    seen.push([path.basename(script), argv]);
+    return { code: EXIT_INVOCATION, stdout: "", stderr: "" };
+  };
+  const pkg = { scripts: { policy: "node scripts/policy.mjs --json", decisions: "node scripts/decisions.mjs --json" } };
+  await sweepPackageScripts(pkg, target, exec);
+  for (const [file] of [["policy.mjs"], ["decisions.mjs"]]) {
+    const argv = seen.find(([f]) => f === file)[1];
+    assert.ok(argv.includes("--json"), `${file}: the script's own --json never reached the executed argv: ${argv.join(" ")}`);
+    assert.ok(argv.some((a) => a.startsWith(target)), `${file}: the subject was not put on the command line`);
+  }
+});
+
+test("package sweep: a changed script is not silently replaced by the canonical invocation", async () => {
+  const target = makeExternalTarget("1.0.0");
+  const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: "" });
+  const changed = [
+    ["a subject path of its own", "node scripts/policy.mjs elsewhere/project-policy.yml"],
+    ["an extra flag the census does not model", "node scripts/policy.mjs --betting"],
+    ["a flag taking a path", "node scripts/decisions.mjs --record other.md"],
+    ["a subject-selecting flag", "node scripts/policy.mjs --project-policy other.yml"],
+  ];
+  for (const [label, command] of changed) {
+    const name = command.includes("decisions") ? "decisions" : "policy";
+    await assert.rejects(
+      () => sweepPackageScripts({ scripts: { [name]: command } }, target, exec),
+      assert.AssertionError,
+      `a script with ${label} must fail the sweep rather than be tested as the canonical call`,
+    );
+  }
+});
+
+test("package sweep: a usage error is not mistaken for the authority refusal", async () => {
+  // Exit 2 is also what a bad flag produces. A sweep that accepted any exit 2 would pass for a reason
+  // that has nothing to do with the declared framework.
+  const target = makeExternalTarget("1.0.0");
+  const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: "standards policy: unknown flag '--x'\n" });
+  await assert.rejects(
+    () => sweepPackageScripts({ scripts: { policy: "node scripts/policy.mjs" } }, target, exec),
+    assert.AssertionError,
+  );
+});
+
+test("package sweep: the shipped scripts all pass, and the canonical scripts are the ones modelled", async () => {
+  const target = makeExternalTarget("1.0.0");
+  const seen = [];
+  const exec = async (script, ...argv) => {
+    seen.push(path.basename(script));
+    return cli(script, ...argv);
+  };
+  await sweepPackageScripts(JSON.parse(readRel("package.json")), target, exec);
+  assert.ok(seen.includes("policy.mjs"), "the real policy script was not exercised");
 });
 
 test("beyond JS: ci/pipeline.json stages are this repository's own npm scripts with no slot for a subject", () => {
@@ -1046,13 +1177,75 @@ test("beyond JS: the adapter contract refuses an external subject without author
   for (const passing of adapter.result.passing) assert.ok(adapter.result.statuses.includes(passing), `'${passing}' is passing but not a declared status`);
 });
 
+const RUNNER_STEP = /^node scripts\/ci-stages\.mjs( --verbose| --json)*$|^\.\/scripts\/ci\.sh$/;
+
+/**
+ * Every way a workflow can launch something, classified. Returns the problems found (empty when the
+ * workflow only runs the pipeline runner and a closed set of non-evaluating actions).
+ *
+ * TWO KINDS OF STEP LAUNCH CODE. A `run:` step names a command; a `uses:` step names an ACTION — code
+ * that lives elsewhere (a local or composite action, a Docker image, a third-party repository) and can
+ * be handed anything the workflow has. Checking only `run:` leaves the second door open, so a `uses:`
+ * is accepted only when it is on the list below, pinned to a major version, and given only the inputs
+ * recorded for it. A local (`./`) or Docker (`docker://`) action, an unlisted owner, an unpinned ref or an
+ * unrecorded input is a problem, because none of those can be shown to leave a subject alone.
+ */
+const WORKFLOW_ACTIONS = {
+  "actions/checkout": { inputs: [], why: "fetches this repository's own source; takes no subject." },
+  "actions/setup-node": { inputs: ["node-version"], why: "installs the Node runtime named in ci/pipeline.json." },
+  "actions/upload-artifact": {
+    inputs: ["name", "path", "if-no-files-found"],
+    paths: ["artifacts/local-ci/latest.json"],
+    why: "stores the runner's own evidence record after the pipeline; it reads a file and evaluates nothing.",
+  },
+};
+
+function workflowProblems(text) {
+  const problems = [];
+  const lines = text.split(/\r?\n/);
+  const runs = [...text.matchAll(/^\s*(?:-\s*)?run:\s*(.+)$/gm)].map((m) => m[1].trim());
+  for (const r of runs) if (!RUNNER_STEP.test(r)) problems.push(`runs something other than the pipeline runner: ${r}`);
+
+  // Job-level launch surfaces that are not steps.
+  for (const m of text.matchAll(/^\s+(container|services):/gm)) problems.push(`job declares '${m[1]}', a launch surface that is not classified`);
+
+  let current = null; // the action of the most recent `uses:` step
+  let withIndent = null;
+  for (const line of lines) {
+    if (/^\s*#/.test(line) || line.trim() === "") continue;
+    const indent = line.match(/^\s*/)[0].length;
+    if (withIndent !== null && indent <= withIndent) withIndent = null;
+    const uses = line.match(/^\s*(?:-\s*)?uses:\s*(.+?)\s*(?:#.*)?$/);
+    if (uses) {
+      const ref = uses[1].replace(/^["']|["']$/g, "");
+      const m = ref.match(/^([\w.-]+\/[\w.-]+)@(v\d+)$/);
+      if (!m || !WORKFLOW_ACTIONS[m[1]]) {
+        problems.push(`uses an action that is not classified (local, composite, Docker, third-party or unpinned): ${ref}`);
+        current = null;
+      } else current = m[1];
+      continue;
+    }
+    if (/^\s*(?:-\s*)?with:\s*$/.test(line)) {
+      withIndent = indent;
+      continue;
+    }
+    if (withIndent !== null) {
+      const input = line.match(/^\s*([\w-]+):\s*(.*)$/);
+      if (!input) continue;
+      const spec = current && WORKFLOW_ACTIONS[current];
+      if (!spec || !spec.inputs.includes(input[1])) problems.push(`${current ?? "an unclassified action"} is given an unrecorded input '${input[1]}'`);
+      else if (input[1] === "path" && !spec.paths.includes(input[2].trim())) problems.push(`${current} is pointed at an unrecorded path '${input[2].trim()}'`);
+    }
+  }
+  return problems;
+}
+
 test("beyond JS: the workflow and container recipe run the pipeline runner and nothing that interprets a subject", () => {
   for (const f of filesOfKind("workflow")) {
-    const runs = [...readRel(f).matchAll(/^\s*(?:-\s*)?run:\s*(.+)$/gm)].map((m) => m[1].trim());
-    assert.ok(runs.length > 0, `${f}: control — it should have a run step`);
-    for (const r of runs) {
-      assert.match(r, /^node scripts\/ci-stages\.mjs( --verbose| --json)*$|^\.\/scripts\/ci\.sh$/, `${f} runs something other than the pipeline runner: ${r}`);
-    }
+    const text = readRel(f);
+    assert.ok(/^\s*(?:-\s*)?run:/m.test(text), `${f}: control — it should have a run step`);
+    assert.ok(/^\s*(?:-\s*)?uses:/m.test(text), `${f}: control — it should have a uses step, or the action check examines nothing`);
+    assert.deepEqual(workflowProblems(text), [], `${f} launches something that is not the pipeline runner or a classified action`);
   }
   const docker = readRel("Dockerfile.ci");
   const dockerRuns = [...docker.matchAll(/^RUN\s+(.+)$/gm)].map((m) => m[1].trim());
@@ -1062,6 +1255,58 @@ test("beyond JS: the workflow and container recipe run the pipeline runner and n
   for (const m of compose.matchAll(/^\s+(?:command|entrypoint):\s*(.+)$/gm)) {
     assert.fail(`compose.ci.yml overrides the container command: ${m[1]}`);
   }
+});
+
+const WORKFLOW_BASE = [
+  "name: ci",
+  "on: [push]",
+  "jobs:",
+  "  pipeline:",
+  "    runs-on: ubuntu-latest",
+  "    steps:",
+  "      - uses: actions/checkout@v4",
+  "      - name: Run the pipeline",
+  "        run: node scripts/ci-stages.mjs --verbose",
+].join("\n");
+
+test("workflow scan: action steps are classified, not skipped", () => {
+  const withStep = (...step) => `${WORKFLOW_BASE}\n${step.join("\n")}\n`;
+  const bad = {
+    "a local action": withStep("      - uses: ./.github/actions/evaluate"),
+    "a local composite action in a subdirectory": withStep("      - uses: ./tools/composite"),
+    "a Docker action": withStep("      - uses: docker://alpine:3.19"),
+    "a third-party action": withStep("      - uses: someone/evaluate-target@v1"),
+    "an unpinned third-party ref": withStep("      - uses: actions/checkout@main"),
+    "a quoted third-party action": withStep('      - uses: "someone/else@v2"'),
+    "a listed action given an unrecorded input": withStep("      - uses: actions/setup-node@v4", "        with:", '          node-version: "20"', "          script: evaluate"),
+    "upload-artifact pointed at another path": withStep("      - uses: actions/upload-artifact@v4", "        with:", "          name: x", "          path: subject/ledger"),
+    "a run step that evaluates a target": withStep("      - run: node scripts/standards.mjs validate ."),
+    "a run step with a block scalar": withStep("      - run: |", "          node scripts/ci-stages.mjs", "          node scripts/standards.mjs audit ."),
+    "a job container": `${WORKFLOW_BASE}\n    container: someone/image:1\n`,
+  };
+  for (const [label, text] of Object.entries(bad)) {
+    assert.notDeepEqual(workflowProblems(text), [], `${label} must be a problem`);
+  }
+});
+
+test("workflow scan: the pipeline-runner-only workflow, and mere mentions, pass", () => {
+  assert.deepEqual(workflowProblems(`${WORKFLOW_BASE}\n`), []);
+  const listed = [
+    WORKFLOW_BASE,
+    "      - uses: actions/setup-node@v4 # the runtime",
+    "        with:",
+    '          node-version: "20"',
+    "      - uses: actions/upload-artifact@v4",
+    "        with:",
+    "          name: local-ci-result",
+    "          path: artifacts/local-ci/latest.json",
+    "          if-no-files-found: warn",
+    "",
+  ].join("\n");
+  assert.deepEqual(workflowProblems(listed), []);
+  // A comment, or a step name, that merely mentions an action or a flag is not a launch.
+  const mentions = `# uses: ./evil and run: rm -rf\n${WORKFLOW_BASE}\n      - name: uses ./local action is not used here\n        run: ./scripts/ci.sh\n`;
+  assert.deepEqual(workflowProblems(mentions), []);
 });
 
 test("beyond JS: the wrappers name no surface that interprets a subject (classified by reading, and said so)", () => {
