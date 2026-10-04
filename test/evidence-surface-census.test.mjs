@@ -1200,10 +1200,54 @@ const WORKFLOW_ACTIONS = {
   },
 };
 
-function workflowProblems(text) {
+/**
+ * THE LINE SCAN IS ONLY SOUND ON ONE SPELLING OF YAML. `uses` and `run` are located by a line pattern, and
+ * YAML has many spellings of the same mapping that GitHub runs identically: a flow mapping (`- { uses: ./x }`),
+ * a quoted key (`- "uses": ./x`), a flow `steps: [ ... ]`, an anchor or alias that reuses a step, a `<<` merge,
+ * a second document. A regex cannot enumerate those, and this repository has no YAML reader that accepts the
+ * real workflow (scripts/yaml.mjs is a policy-file subset and rejects the flow lists in ci.yml). So the census
+ * does not try to read them: it REFUSES them. Every line outside a block scalar must be a plain block form
+ * (`key:`, `key: value`, `- key: value`) with a bare key, and the few flow values allowed are flat lists of
+ * plain words under a trigger-filter key. Anything else is a problem in its own right, so "the census could
+ * not parse it" can never be read as "the census found nothing".
+ */
+const WORKFLOW_FLOW_LIST_KEYS = new Set(["on", "branches", "branches-ignore", "tags", "tags-ignore", "paths", "paths-ignore", "types"]);
+const WORKFLOW_KEY_LINE = /^(\s*)(-\s+)?([A-Za-z_][\w.-]*):(?:\s+(.*?))?\s*$/;
+const WORKFLOW_FLAT_LIST = /^\[\s*(?:[\w./*-]+(?:\s*,\s*[\w./*-]+)*)?\s*\]$/;
+const WORKFLOW_UNREADABLE_VALUE_START = /^[&*!{@`%?[]/;
+
+function workflowStructureProblems(text) {
   const problems = [];
+  let scalarFloor = null; // a block scalar's body must be indented deeper than this
+  text.split(/\r?\n/).forEach((line, i) => {
+    const at = `line ${i + 1}`;
+    if (line.includes("\t")) return void problems.push(`${at}: contains a tab, which the census does not read`);
+    if (line.trim() === "") return;
+    const indent = line.match(/^\s*/)[0].length;
+    if (scalarFloor !== null) {
+      if (indent > scalarFloor) return; // the body of a block scalar is data
+      scalarFloor = null;
+    }
+    if (/^\s*#/.test(line)) return;
+    const m = line.match(WORKFLOW_KEY_LINE);
+    if (!m) return void problems.push(`${at}: workflow syntax the census does not read (flow collection, quoted or explicit key, anchor, alias, merge, tag, document marker or continuation line): ${line.trim()}`);
+    const keyColumn = m[1].length + (m[2] ? m[2].length : 0);
+    const value = (m[4] ?? "").replace(/(^|\s)#.*$/, "").trim();
+    if (/^[|>]/.test(value)) {
+      scalarFloor = keyColumn;
+      return;
+    }
+    if (!WORKFLOW_UNREADABLE_VALUE_START.test(value)) return;
+    if (value.startsWith("[") && WORKFLOW_FLOW_LIST_KEYS.has(m[3]) && WORKFLOW_FLAT_LIST.test(value)) return;
+    problems.push(`${at}: the value of '${m[3]}' is syntax the census does not read: ${value}`);
+  });
+  return problems;
+}
+
+function workflowProblems(text) {
+  const problems = workflowStructureProblems(text);
   const lines = text.split(/\r?\n/);
-  const runs = [...text.matchAll(/^\s*(?:-\s*)?run:\s*(.+)$/gm)].map((m) => m[1].trim());
+  const runs = [...text.matchAll(/^\s*(?:-\s+)?run:[ \t]*(.*)$/gm)].map((m) => m[1].trim());
   for (const r of runs) if (!RUNNER_STEP.test(r)) problems.push(`runs something other than the pipeline runner: ${r}`);
 
   // Job-level launch surfaces that are not steps.
@@ -1215,7 +1259,7 @@ function workflowProblems(text) {
     if (/^\s*#/.test(line) || line.trim() === "") continue;
     const indent = line.match(/^\s*/)[0].length;
     if (withIndent !== null && indent <= withIndent) withIndent = null;
-    const uses = line.match(/^\s*(?:-\s*)?uses:\s*(.+?)\s*(?:#.*)?$/);
+    const uses = line.match(/^\s*(?:-\s+)?uses:\s*(.*?)\s*(?:\s#.*)?$/);
     if (uses) {
       const ref = uses[1].replace(/^["']|["']$/g, "");
       const m = ref.match(/^([\w.-]+\/[\w.-]+)@(v\d+)$/);
@@ -1225,7 +1269,7 @@ function workflowProblems(text) {
       } else current = m[1];
       continue;
     }
-    if (/^\s*(?:-\s*)?with:\s*$/.test(line)) {
+    if (/^\s*(?:-\s+)?with:\s*$/.test(line)) {
       withIndent = indent;
       continue;
     }
@@ -1287,6 +1331,45 @@ test("workflow scan: action steps are classified, not skipped", () => {
   for (const [label, text] of Object.entries(bad)) {
     assert.notDeepEqual(workflowProblems(text), [], `${label} must be a problem`);
   }
+});
+
+test("workflow scan: syntax the census cannot read line by line is refused, never read as safe", () => {
+  const withStep = (...step) => `${WORKFLOW_BASE}\n${step.join("\n")}\n`;
+  // Each of these is valid YAML that GitHub runs as a step (or hides one); the line scan sees no `uses:`.
+  const unreadable = {
+    "a flow-mapping step": withStep("      - { uses: ./tools/composite }"),
+    "a flow-mapping step with another key first": withStep("      - { name: x, uses: ./tools/composite }"),
+    "a flow-mapping step, multi-line": withStep("      - {", "          uses: ./tools/composite", "        }"),
+    "a double-quoted key": withStep('      - "uses": ./tools/composite'),
+    "a single-quoted key": withStep("      - 'uses': ./tools/composite"),
+    "a quoted run key": withStep('      - "run": node scripts/standards.mjs audit .'),
+    "a flow-sequence steps list": WORKFLOW_BASE.replace("    steps:", "    steps: [ { uses: ./tools/composite } ]\n    other:") + "\n",
+    "a flow-mapping with": withStep("      - uses: actions/setup-node@v4", "        with: { node-version: 20, script: evaluate }"),
+    "an anchor on a step": withStep("      - &evil", "        uses: ./tools/composite"),
+    "an alias of a step": withStep("      - *evil"),
+    "an anchored value": withStep("      - name: &n x", "        run: node scripts/ci-stages.mjs"),
+    "a merge key": withStep("      - <<: *evil"),
+    "a tagged value": withStep("      - uses: !!str ./tools/composite"),
+    "a second document": `${WORKFLOW_BASE}\n---\nname: other\njobs:\n  x:\n    steps:\n      - uses: ./tools/composite\n`,
+    "a document end marker": `${WORKFLOW_BASE}\n...\n`,
+    "a nested sequence step": withStep("      - - uses: ./tools/composite"),
+    "an explicit key": withStep("      - ? uses", "        : ./tools/composite"),
+    "a multi-line plain value": withStep("      - uses:", "          ./tools/composite"),
+    "an empty uses with a mapping under it": withStep("      - uses:", "          a: b"),
+    "a tab-indented line": withStep("      - name: x", "\trun: node scripts/standards.mjs audit ."),
+    "a tab-indented line that is otherwise a permitted step": withStep("      - name: x", "\tuses: actions/checkout@v4"),
+    "a tagged value on a harmless key": withStep("      - name: !!str x"),
+    "a flat flow list under a key that is not a trigger filter": WORKFLOW_BASE.replace("    steps:", "    steps: [foo]\n    other:") + "\n",
+    "a flow mapping inside a flow list under a trigger filter": withStep("    branches: [ { uses: ./tools/composite } ]"),
+    "a step that follows a block scalar, at a shallower indent": withStep("      - name: x", "        env:", "          NOTE: |", "            body", "      - { uses: ./tools/composite }"),
+    "a deeper line after a block scalar has ended": withStep("      - name: x", "        env:", "          NOTE: |", "            body", "        with:", "            - { uses: ./tools/composite }"),
+    "a dash fused to the key": withStep("      -uses: ./tools/composite"),
+  };
+  const accepted = Object.entries(unreadable).filter(([, text]) => workflowProblems(text).length === 0).map(([label]) => label);
+  assert.deepEqual(accepted, [], "these were read as safe; unparseable must never mean safe");
+  // The body of a non-run block scalar is data, not structure.
+  const env = withStep("        env:", "          NOTE: |", "            - { uses: ./not-a-step }", "            anything at all");
+  assert.deepEqual(workflowProblems(env), [], "the body of a non-run block scalar must not be read as structure");
 });
 
 test("workflow scan: the pipeline-runner-only workflow, and mere mentions, pass", () => {

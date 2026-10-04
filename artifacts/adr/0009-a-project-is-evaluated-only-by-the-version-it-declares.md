@@ -290,7 +290,13 @@ command, so what is checked is where the names lead. All of it is derived, in
   runner's own evidence record. A local, composite, Docker, unlisted or unpinned action, an
   unrecorded input, and a job `container:` or `services:` all fail. The actions are classified by
   that allowlist and by reading, not run: what third-party action code does inside GitHub's runner
-  is not observed here, only that nothing outside the list can be added unnoticed. The image's only
+  is not observed here, only that nothing outside the list can be added unnoticed. The scan is line
+  based, so it is sound on one spelling of YAML only; it does not try to read the others, it **refuses**
+  them: a flow mapping or flow `steps:`, a quoted or explicit key, an anchor, alias, tag or `<<` merge,
+  a second document, a tab, or a continuation line is itself a failure, and the only flow values
+  allowed are flat lists of plain words under a trigger-filter key (`on`, `branches`, `paths`, ...).
+  Refusing is deliberate: `scripts/yaml.mjs` is a policy-file subset that cannot read the real
+  workflow, so "could not parse" must never read as "found nothing". The image's only
   `RUN` is the known `apk add`, its `CMD` is the runner, and compose overrides no command.
 - **Wrappers.** Classified by **reading**, and recorded as such: executing them needs Docker or a push.
   `test/local-ci.test.mjs` runs `submit-pr` against throwaway repositories; this file adds only a
