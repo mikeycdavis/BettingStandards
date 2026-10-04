@@ -273,11 +273,21 @@ command, so what is checked is where the names lead. All of it is derived, in
   arguments, plus the subject, on an external subject declaring another framework. A script that
   carries an argument the census does not model for a refusing surface (a subject path of its own,
   `--record`, `--project-policy`, any flag not listed for that surface) fails the sweep instead of
-  being replaced by the canonical invocation, and an exit 2 caused by a usage error is not accepted
-  as the authority's refusal. For `standards.mjs` the parsed arguments were already used: verdict-bearing subcommands must exit 2 with empty output; `plan`,
-  `explain` and `init --dry-run` may run (ADR 0009 keeps them working) but must emit no verdict-shaped
-  figure. The subject has no betting policy or ledger on purpose, so only the project-level guard
-  can answer, which is the ground a second guard would otherwise mask.
+  being replaced by the canonical invocation, and an exit 2 is accepted only when it is the guard's own refusal: stdout empty and stderr carrying
+  the wrong-framework diagnostic (`this project declares standardVersion <declared>, and this checkout is
+  <executing>` followed by `Nothing was evaluated.`) for the version the subject declares. A usage
+  error, a missing file, a missing betting policy, a refusal about another version, the right words on
+  stdout, and the right words with another exit code all fail the sweep. This matters because a
+  *regressed* guard looks exactly like those: with no betting policy, the later step that fails first is
+  also exit 2 with empty stdout. For `standards.mjs` the parsed arguments were already used:
+  verdict-bearing subcommands must refuse with that diagnostic; `plan`, `explain` and `init --dry-run`
+  may run (ADR 0009 keeps them working) but must emit no verdict-shaped figure. The subject has no
+  betting policy or ledger on purpose, so only the project-level guard can answer, which is the ground
+  a second guard would otherwise mask. The one exception is `standards check`, which refuses a
+  directory without a betting policy before it reaches the guard: it is run against a copy of the
+  subject that has one, so the guard is what answers. There a second guard inside `checkLedger` says
+  the same sentence, so the sweep proves `check` refuses with the guard's diagnostic, not that each of
+  the two guards is individually present.
 - **`ci/pipeline.json`.** Each stage is `npm run <script>` or `npm test` with no further token, so no
   argument slot exists; the runner's side of that is proved by execution under ST-03.
 - **The adapter contract.** Its entrypoint must be a surface the CLI census classifies as refusing

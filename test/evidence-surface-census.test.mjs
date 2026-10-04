@@ -986,6 +986,52 @@ function parseNpmScript(name, command) {
 const VERDICT_VOCABULARY = /"score"|"standardVersion"|NON_COMPLIANT|COMPLIANT|"verdict"|frameworkCoverage|evaluatedRules/;
 
 /**
+ * The framework guard's own refusal, asserted as a whole: exit 2, nothing on stdout, and on stderr the
+ * wrong-framework diagnostic of `declaredVersionRefusal` for the version the subject declares.
+ *
+ * Exit 2 alone proves nothing. A missing file (`standards check: ENOENT ...`), a missing betting
+ * policy, a usage error and an unreadable catalog are all exit 2 with empty stdout, and every one of
+ * them is what a REGRESSED guard looks like when a later step falls over first. Only this sentence
+ * is said by the guard.
+ */
+function assertAuthorityRefusal({ code, stdout, stderr }, declared, label) {
+  assert.equal(code, EXIT_INVOCATION, `${label} did not refuse a subject declaring another framework`);
+  assert.equal((stdout ?? "").trim(), "", `${label} printed output for a subject with no authority`);
+  const diagnostic = new RegExp(
+    `this project declares standardVersion ${declared.replace(/\./g, "\\.")}, and this checkout is \\d+\\.\\d+\\.\\d+\\nNothing was evaluated\\.`,
+  );
+  assert.match(
+    stderr ?? "",
+    diagnostic,
+    `${label} exited 2 but not with the framework guard's diagnostic (usage error, missing file or other failure?): ${JSON.stringify(stderr)}`,
+  );
+}
+
+const GUARD_STDERR =
+  "standards check: this project declares standardVersion 1.0.0, and this checkout is 2.0.0\n" +
+  "Nothing was evaluated. A 2.0.0 result labelled 1.0.0 would describe a judgement that\n";
+
+/** The version a fixture subject declares, read from the fixture itself. */
+function declaredVersionOf(target) {
+  const m = /^standardVersion:\s*"([^"]+)"/m.exec(readFileSync(path.join(target, "project-policy.yml"), "utf8"));
+  assert.ok(m, `fixture ${target} declares no standardVersion`);
+  return m[1];
+}
+
+/**
+ * `standards check` refuses a directory with no betting policy BEFORE it reaches the framework guard,
+ * so on the bare fixture its exit 2 is that earlier refusal and says nothing about the guard. A copy
+ * that has a betting policy gets past it, which is the only way the guard is the thing that answers.
+ */
+function withBettingPolicy(target) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bs-census-"));
+  TEMPORARY.push(dir);
+  cpSync(target, dir, { recursive: true });
+  cpSync(path.join(ROOT, "betting-policy.yml"), path.join(dir, "betting-policy.yml"));
+  return dir;
+}
+
+/**
  * Run every script of `pkg` the way `npm run` would — with the script's OWN parsed arguments — against
  * `target`, an external subject declaring another framework. `exec(scriptPath, ...argv)` is injected so
  * the argv that is actually executed can be observed.
@@ -1014,14 +1060,14 @@ async function sweepPackageScripts(pkg, target, exec = cli) {
 
     // A surface that interprets subjects: run the script's own command with the subject put where
     // the script's own target goes (`.`, or appended where the script has none).
-    const withTarget = args.includes(".") ? args.map((a) => (a === "." ? target : a)) : [...args, target];
+    const subject = file === "standards.mjs" && args[0] === "check" ? withBettingPolicy(target) : target;
+    const withTarget = args.includes(".") ? args.map((a) => (a === "." ? subject : a)) : [...args, subject];
     if (file === "standards.mjs") {
       const sub = args[0];
       if (sub === "init") withTarget.push("--dry-run");
-      const { code, stdout } = await exec(script, ...withTarget, ...(sub === "explain" ? [] : ["--json"]));
+      const { code, stdout, stderr } = await exec(script, ...withTarget, ...(sub === "explain" ? [] : ["--json"]));
       if (VERDICT_BEARING.has(sub)) {
-        assert.equal(code, EXIT_INVOCATION, `package script '${name}' did not refuse a subject declaring another framework`);
-        assert.equal(stdout.trim(), "", `package script '${name}' printed output for a subject with no authority`);
+        assertAuthorityRefusal({ code, stdout, stderr }, declaredVersionOf(target), `package script '${name}'`);
       } else {
         // plan / explain / init preview or look up; ADR 0009 keeps them working. What they must never do is
         // carry a verdict or a figure about the subject.
@@ -1035,10 +1081,9 @@ async function sweepPackageScripts(pkg, target, exec = cli) {
       const unmodelled = args.filter((a) => !(spec.flags ?? []).includes(a));
       assert.deepEqual(unmodelled, [], `package script '${name}' hands '${file}' arguments the census does not model`);
       const { code, stdout, stderr } = await exec(script, ...args, ...spec.argv(target));
-      assert.equal(code, EXIT_INVOCATION, `package script '${name}' (${file}) did not refuse an external subject`);
-      assert.equal(stdout.trim(), "");
-      // Exit 2 is also what a usage error returns; the refusal must be the authority's, not a bad flag's.
-      assert.doesNotMatch(stderr ?? "", /unknown flag|unexpected argument/, `package script '${name}' failed on its arguments, not on the subject's authority`);
+      // Exit 2 is also what a usage error or a missing file returns; the refusal must be the authority's
+      // own diagnostic, not merely an exit 2 that did not mention a bad flag.
+      assertAuthorityRefusal({ code, stdout, stderr }, declaredVersionOf(target), `package script '${name}' (${file})`);
     }
     ran.push(name);
   }
@@ -1070,7 +1115,7 @@ test("package sweep: a refusing surface is executed with its script's own parsed
   const seen = [];
   const exec = async (script, ...argv) => {
     seen.push([path.basename(script), argv]);
-    return { code: EXIT_INVOCATION, stdout: "", stderr: "" };
+    return { code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR };
   };
   const pkg = { scripts: { policy: "node scripts/policy.mjs --json", decisions: "node scripts/decisions.mjs --json" } };
   await sweepPackageScripts(pkg, target, exec);
@@ -1083,7 +1128,7 @@ test("package sweep: a refusing surface is executed with its script's own parsed
 
 test("package sweep: a changed script is not silently replaced by the canonical invocation", async () => {
   const target = makeExternalTarget("1.0.0");
-  const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: "" });
+  const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR });
   const changed = [
     ["a subject path of its own", "node scripts/policy.mjs elsewhere/project-policy.yml"],
     ["an extra flag the census does not model", "node scripts/policy.mjs --betting"],
@@ -1100,15 +1145,53 @@ test("package sweep: a changed script is not silently replaced by the canonical 
   }
 });
 
-test("package sweep: a usage error is not mistaken for the authority refusal", async () => {
-  // Exit 2 is also what a bad flag produces. A sweep that accepted any exit 2 would pass for a reason
-  // that has nothing to do with the declared framework.
+test("package sweep: only the framework guard's own diagnostic is accepted as the refusal", async () => {
+  // Every one of these is exit 2 with empty stdout. The first four are what a REGRESSED guard looks
+  // like when something later fails first (the fixture has no betting policy and no ledger on purpose);
+  // the last two say the right words in the wrong place or about the wrong subject.
   const target = makeExternalTarget("1.0.0");
-  const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: "standards policy: unknown flag '--x'\n" });
-  await assert.rejects(
-    () => sweepPackageScripts({ scripts: { policy: "node scripts/policy.mjs" } }, target, exec),
-    assert.AssertionError,
-  );
+  const ENOENT = "standards check: ENOENT: no such file or directory, open '/x/betting-policy.yml'\n";
+  const wrong = [
+    ["a usage error", "standards policy: unknown flag '--x'\n"],
+    ["a missing file", ENOENT],
+    ["a missing betting policy", "standards check: no betting-policy.yml in /x\nRun `standards init` first.\n"],
+    ["no diagnostic at all", ""],
+    ["the guard's words on stdout instead of stderr", "", GUARD_STDERR],
+    ["the guard's words but a verdict-shaped figure on stdout", GUARD_STDERR, '{"score": 100}\n'],
+    ["the guard's words but exit 1, a verdict", GUARD_STDERR, "", 1],
+    ["a refusal about another version", GUARD_STDERR.replace("1.0.0", "9.9.9")],
+  ];
+  for (const [label, stderr, stdout = "", code = EXIT_INVOCATION] of wrong) {
+    for (const command of ["node scripts/policy.mjs", "node scripts/standards.mjs validate .", "node scripts/standards.mjs check"]) {
+      const exec = async () => ({ code, stdout, stderr });
+      await assert.rejects(
+        () => sweepPackageScripts({ scripts: { s: command } }, target, exec),
+        assert.AssertionError,
+        `${label} was accepted as the authority's refusal for '${command}'`,
+      );
+    }
+  }
+  // The positive control: the guard's own diagnostic is accepted, so the rejections above are about the text.
+  const ok = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR });
+  await sweepPackageScripts({ scripts: { policy: "node scripts/policy.mjs", check: "node scripts/standards.mjs check" } }, target, ok);
+});
+
+test("package sweep: `standards check` is run where the guard, not the missing betting policy, is what answers", async () => {
+  const target = makeExternalTarget("1.0.0");
+  let dirSeen = null;
+  const exec = async (script, ...argv) => {
+    dirSeen = argv.find((a) => a.startsWith(os.tmpdir()));
+    return { code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR };
+  };
+  await sweepPackageScripts({ scripts: { check: "node scripts/standards.mjs check" } }, target, exec);
+  assert.ok(dirSeen && dirSeen !== target, "check was run against the bare fixture, where the betting-policy refusal pre-empts the guard");
+  assert.ok(existsSync(path.join(dirSeen, "betting-policy.yml")), "the subject handed to check has no betting policy to get past");
+});
+
+test("package sweep: decisions.mjs run for real on an external subject is refused by the guard itself", async () => {
+  const target = makeExternalTarget("1.0.0");
+  const ran = await sweepPackageScripts({ scripts: { decisions: "node scripts/decisions.mjs --json" } }, target);
+  assert.deepEqual(ran, ["decisions"]);
 });
 
 test("package sweep: the shipped scripts all pass, and the canonical scripts are the ones modelled", async () => {
