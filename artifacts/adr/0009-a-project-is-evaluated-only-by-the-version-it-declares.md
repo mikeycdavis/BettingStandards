@@ -297,7 +297,13 @@ command, so what is checked is where the names lead. All of it is derived, in
   The refusal is asserted **whole**. Exit 2 with empty stdout is also what a command returns when it
   says the guard's sentence and then carries on to a later missing-file, missing-policy or usage
   failure, and its stderr still contains the sentence; so stderr must equal the command's name and the
-  guard's complete diagnostic, and nothing before or after it. Which guard is distinguished and which
+  guard's complete diagnostic, and nothing before or after it. The name is that of the command that was
+  *run*, derived from the script and subcommand that executed and compared with that one refusal only:
+  `policy.mjs` must say `standards policy:`, `decisions.mjs` and `standards check` must say
+  `standards check:`, and `standards validate`, `audit` and `status` their own. A command that says
+  another command's name followed by the complete message fails the sweep, as does a stub that supplies
+  one command's refusal for another. The adapter contract's own declared invocation is held to the same
+  whole, per-command refusal (`standards validate:`). Which guard is distinguished and which
   is not was measured by mutating each one separately (see the table below).
 - **`ci/pipeline.json`.** Each stage is `npm run <script>` or `npm test` with no further token, so no
   argument slot exists; the runner's side of that is proved by execution under ST-03.

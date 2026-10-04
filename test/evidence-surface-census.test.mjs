@@ -994,7 +994,8 @@ const VERDICT_VOCABULARY = /"score"|"standardVersion"|NON_COMPLIANT|COMPLIANT|"v
  * them is what a REGRESSED guard looks like when a later step falls over first. Only this sentence
  * is said by the guard.
  */
-function assertAuthorityRefusal({ code, stdout, stderr }, declared, label) {
+function assertAuthorityRefusal({ code, stdout, stderr }, declared, label, prefix) {
+  assert.ok(prefix, `${label}: the command that was run names no refusal prefix`);
   assert.equal(code, EXIT_INVOCATION, `${label} did not refuse a subject declaring another framework`);
   assert.equal((stdout ?? "").trim(), "", `${label} printed output for a subject with no authority`);
   // The WHOLE of stderr, not a substring of it. A command that said the guard's sentence and then
@@ -1002,17 +1003,31 @@ function assertAuthorityRefusal({ code, stdout, stderr }, declared, label) {
   // its stderr still CONTAINS the sentence: that is the continue-after-warning regression this sweep
   // exists to catch. The refusal is the command's prefix and the guard's complete diagnostic, and
   // nothing before it or after it.
-  assert.ok(
-    guardRefusals(declared).includes(stderr ?? ""),
-    `${label} exited 2 but its stderr is not exactly the framework guard's complete refusal (usage error, missing file, output before or after the guard?): ${JSON.stringify(stderr)}`,
+  //
+  // And it is the refusal of THIS command. The prefix is derived from the script and subcommand that was
+  // executed (expectedRefusalPrefix), and stderr is compared with that one refusal only: a command that
+  // says another command's name followed by the complete message is not the command that was run.
+  assert.equal(
+    stderr ?? "",
+    refusalFor(prefix, declared),
+    `${label} exited 2 but its stderr is not exactly '${prefix}: ' and the framework guard's complete refusal (usage error, missing file, another command's prefix, output before or after the guard?): ${JSON.stringify(stderr)}`,
   );
 }
 
 /** The version this checkout executes: the file the guard itself reads. */
 const EXECUTING_VERSION = readFileSync(path.join(ROOT, "VERSION"), "utf8").trim();
 
-/** Each command names itself before the guard's diagnostic; these are the commands that can refuse. */
-const GUARD_PREFIXES = ["standards policy", "standards validate", "standards audit", "standards status", "standards check"];
+/**
+ * Each command names itself before the guard's diagnostic, and the name is the command that was RUN:
+ * `policy.mjs` says `standards policy`, `decisions.mjs` says `standards check` (it is the engine behind
+ * that command), and `standards.mjs <sub>` says `standards <sub>`. Read from the real stderr of each.
+ */
+function expectedRefusalPrefix(file, args) {
+  if (file === "policy.mjs") return "standards policy";
+  if (file === "decisions.mjs") return "standards check";
+  if (file === "standards.mjs" && ["validate", "audit", "status", "check"].includes(args[0])) return `standards ${args[0]}`;
+  throw new assert.AssertionError({ message: `no refusal prefix is recorded for '${file} ${args[0] ?? ""}'` });
+}
 
 /** `declaredVersionRefusalIn`'s complete wrong-framework message, written out independently of it. */
 function guardMessage(declared, executing = EXECUTING_VERSION) {
@@ -1026,10 +1041,21 @@ function guardMessage(declared, executing = EXECUTING_VERSION) {
   );
 }
 
-/** Every complete stderr a refusing command may produce for a subject declaring `declared`. */
-const guardRefusals = (declared) => GUARD_PREFIXES.map((p) => `${p}: ${guardMessage(declared)}`);
+/** The one complete stderr a command with refusal prefix `p` produces for a subject declaring `declared`. */
+function refusalFor(p, declared = "1.0.0") {
+  return `${p}: ${guardMessage(declared)}`;
+}
 
-const GUARD_STDERR = guardRefusals("1.0.0").at(-1);
+/**
+ * What the real command prints, for the stubbed executors below. Written out per command rather than
+ * derived from expectedRefusalPrefix, so the production-side derivation is checked against an
+ * independent statement of the same fact (and against the real commands, in the unstubbed sweep).
+ */
+function stubRefusal(script, argv) {
+  const file = path.basename(script);
+  const prefix = { "policy.mjs": "standards policy", "decisions.mjs": "standards check" }[file] ?? `standards ${argv[0]}`;
+  return refusalFor(prefix);
+}
 
 /** The version a fixture subject declares, read from the fixture itself. */
 function declaredVersionOf(target) {
@@ -1087,7 +1113,7 @@ async function sweepPackageScripts(pkg, target, exec = cli) {
       if (sub === "init") withTarget.push("--dry-run");
       const { code, stdout, stderr } = await exec(script, ...withTarget, ...(sub === "explain" ? [] : ["--json"]));
       if (VERDICT_BEARING.has(sub)) {
-        assertAuthorityRefusal({ code, stdout, stderr }, declaredVersionOf(target), `package script '${name}'`);
+        assertAuthorityRefusal({ code, stdout, stderr }, declaredVersionOf(target), `package script '${name}'`, expectedRefusalPrefix(file, args));
       } else {
         // plan / explain / init preview or look up; ADR 0009 keeps them working. What they must never do is
         // carry a verdict or a figure about the subject.
@@ -1103,7 +1129,7 @@ async function sweepPackageScripts(pkg, target, exec = cli) {
       const { code, stdout, stderr } = await exec(script, ...args, ...spec.argv(target));
       // Exit 2 is also what a usage error or a missing file returns; the refusal must be the authority's
       // own diagnostic, not merely an exit 2 that did not mention a bad flag.
-      assertAuthorityRefusal({ code, stdout, stderr }, declaredVersionOf(target), `package script '${name}' (${file})`);
+      assertAuthorityRefusal({ code, stdout, stderr }, declaredVersionOf(target), `package script '${name}' (${file})`, expectedRefusalPrefix(file, args));
     }
     ran.push(name);
   }
@@ -1135,7 +1161,7 @@ test("package sweep: a refusing surface is executed with its script's own parsed
   const seen = [];
   const exec = async (script, ...argv) => {
     seen.push([path.basename(script), argv]);
-    return { code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR };
+    return { code: EXIT_INVOCATION, stdout: "", stderr: stubRefusal(script, argv) };
   };
   const pkg = { scripts: { policy: "node scripts/policy.mjs --json", decisions: "node scripts/decisions.mjs --json" } };
   await sweepPackageScripts(pkg, target, exec);
@@ -1148,7 +1174,7 @@ test("package sweep: a refusing surface is executed with its script's own parsed
 
 test("package sweep: a changed script is not silently replaced by the canonical invocation", async () => {
   const target = makeExternalTarget("1.0.0");
-  const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR });
+  const exec = async (script, ...argv) => ({ code: EXIT_INVOCATION, stdout: "", stderr: stubRefusal(script, argv) });
   const changed = [
     ["a subject path of its own", "node scripts/policy.mjs elsewhere/project-policy.yml"],
     ["an extra flag the census does not model", "node scripts/policy.mjs --betting"],
@@ -1171,26 +1197,26 @@ test("package sweep: only the framework guard's own diagnostic is accepted as th
   // the last two say the right words in the wrong place or about the wrong subject.
   const target = makeExternalTarget("1.0.0");
   const ENOENT = "standards check: ENOENT: no such file or directory, open '/x/betting-policy.yml'\n";
-  const wrong = [
+  const wrongFor = (G) => [
     ["a usage error", "standards policy: unknown flag '--x'\n"],
     ["a missing file", ENOENT],
     ["a missing betting policy", "standards check: no betting-policy.yml in /x\nRun `standards init` first.\n"],
     ["no diagnostic at all", ""],
-    ["the guard's words on stdout instead of stderr", "", GUARD_STDERR],
-    ["the guard's words but a verdict-shaped figure on stdout", GUARD_STDERR, '{"score": 100}\n'],
-    ["the guard's words but exit 1, a verdict", GUARD_STDERR, "", 1],
-    ["a refusal about another version", GUARD_STDERR.replace("1.0.0", "9.9.9")],
+    ["the guard's words on stdout instead of stderr", "", G],
+    ["the guard's words but a verdict-shaped figure on stdout", G, '{"score": 100}\n'],
+    ["the guard's words but exit 1, a verdict", G, "", 1],
+    ["a refusal about another version", G.replace("1.0.0", "9.9.9")],
     // The guard's sentence is there, and then the command carries on and fails somewhere else. Still
     // exit 2 with empty stdout, and the guard's words are still in stderr: a substring match accepts it.
-    ["the guard's sentence, then a later missing-file failure", GUARD_STDERR + ENOENT],
-    ["the guard's sentence, then a later usage error", GUARD_STDERR + "standards check: unknown flag '--x'\n"],
-    ["the guard's sentence, then a missing betting policy", GUARD_STDERR + "standards check: no betting-policy.yml in /x\nRun `standards init` first.\n"],
-    ["output before the guard's sentence", ENOENT + GUARD_STDERR],
-    ["the guard's sentence cut short", GUARD_STDERR.split("\n").slice(0, 2).join("\n") + "\n"],
-    ["the guard's sentence with no trailing newline", GUARD_STDERR.trimEnd()],
+    ["the guard's sentence, then a later missing-file failure", G + ENOENT],
+    ["the guard's sentence, then a later usage error", G + "standards check: unknown flag '--x'\n"],
+    ["the guard's sentence, then a missing betting policy", G + "standards check: no betting-policy.yml in /x\nRun `standards init` first.\n"],
+    ["output before the guard's sentence", ENOENT + G],
+    ["the guard's sentence cut short", G.split("\n").slice(0, 2).join("\n") + "\n"],
+    ["the guard's sentence with no trailing newline", G.trimEnd()],
   ];
-  for (const [label, stderr, stdout = "", code = EXIT_INVOCATION] of wrong) {
-    for (const command of ["node scripts/policy.mjs", "node scripts/standards.mjs validate .", "node scripts/standards.mjs check"]) {
+  for (const [command, own] of COMMAND_PREFIXES) {
+    for (const [label, stderr, stdout = "", code = EXIT_INVOCATION] of wrongFor(refusalFor(own))) {
       const exec = async () => ({ code, stdout, stderr });
       await assert.rejects(
         () => sweepPackageScripts({ scripts: { s: command } }, target, exec),
@@ -1199,9 +1225,40 @@ test("package sweep: only the framework guard's own diagnostic is accepted as th
       );
     }
   }
-  // The positive control: the guard's own diagnostic is accepted, so the rejections above are about the text.
-  const ok = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR });
-  await sweepPackageScripts({ scripts: { policy: "node scripts/policy.mjs", check: "node scripts/standards.mjs check" } }, target, ok);
+  // The positive control: each command's own diagnostic is accepted, so the rejections above are about the text.
+  for (const [command, own] of COMMAND_PREFIXES) {
+    const ok = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: refusalFor(own) });
+    await sweepPackageScripts({ scripts: { s: command } }, target, ok);
+  }
+});
+
+/** Each refusing command, as a package script, and the one prefix its own refusal carries. */
+const COMMAND_PREFIXES = [
+  ["node scripts/policy.mjs", "standards policy"],
+  ["node scripts/decisions.mjs --json", "standards check"],
+  ["node scripts/standards.mjs validate .", "standards validate"],
+  ["node scripts/standards.mjs audit .", "standards audit"],
+  ["node scripts/standards.mjs status .", "standards status"],
+  ["node scripts/standards.mjs check", "standards check"],
+];
+
+test("package sweep: the refusal must carry the prefix of the command that was run, not of another command", async () => {
+  const target = makeExternalTarget("1.0.0");
+  const all = [...new Set(COMMAND_PREFIXES.map(([, p]) => p))];
+  for (const [command, own] of COMMAND_PREFIXES) {
+    // Positive control: the command's own prefix is accepted.
+    const ok = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: refusalFor(own) });
+    await sweepPackageScripts({ scripts: { s: command } }, target, ok);
+    // Every OTHER command's prefix, with the complete and correct message, is refused.
+    for (const other of all.filter((p) => p !== own)) {
+      const exec = async () => ({ code: EXIT_INVOCATION, stdout: "", stderr: refusalFor(other) });
+      await assert.rejects(
+        () => sweepPackageScripts({ scripts: { s: command } }, target, exec),
+        assert.AssertionError,
+        `'${command}' was accepted as refusing while saying '${other}:' instead of '${own}:'`,
+      );
+    }
+  }
 });
 
 test("package sweep: `standards check` is run where the guard, not the missing betting policy, is what answers", async () => {
@@ -1209,7 +1266,7 @@ test("package sweep: `standards check` is run where the guard, not the missing b
   let dirSeen = null;
   const exec = async (script, ...argv) => {
     dirSeen = argv.find((a) => a.startsWith(os.tmpdir()));
-    return { code: EXIT_INVOCATION, stdout: "", stderr: GUARD_STDERR };
+    return { code: EXIT_INVOCATION, stdout: "", stderr: stubRefusal(script, argv) };
   };
   await sweepPackageScripts({ scripts: { check: "node scripts/standards.mjs check" } }, target, exec);
   assert.ok(dirSeen && dirSeen !== target, "check was run against the bare fixture, where the betting-policy refusal pre-empts the guard");
@@ -1275,6 +1332,7 @@ test("beyond JS: the adapter contract refuses an external subject without author
   const refused = await cli(path.join(ROOT, entry), ...argvFor(stale));
   assert.equal(refused.code, EXIT_INVOCATION, "the adapter's own invocation judged a subject with no authority");
   assert.equal(refused.stdout.trim(), "", "and emitted something about it");
+  assertAuthorityRefusal(refused, "1.0.0", "the adapter's own invocation", expectedRefusalPrefix(path.basename(entry), argvFor(stale)));
 
   // And with authority established it evaluates, with a status from the declared vocabulary: the control.
   const current = makeSubject(`standardVersion: "${PACK_VERSION}"\nproject: "current"\nexceptions: []\n`);
