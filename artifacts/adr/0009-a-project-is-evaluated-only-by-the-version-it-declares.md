@@ -273,11 +273,21 @@ command, so what is checked is where the names lead. All of it is derived, in
   arguments, plus the subject, on an external subject declaring another framework. A script that
   carries an argument the census does not model for a refusing surface (a subject path of its own,
   `--record`, `--project-policy`, any flag not listed for that surface) fails the sweep instead of
-  being replaced by the canonical invocation, and an exit 2 caused by a usage error is not accepted
-  as the authority's refusal. For `standards.mjs` the parsed arguments were already used: verdict-bearing subcommands must exit 2 with empty output; `plan`,
-  `explain` and `init --dry-run` may run (ADR 0009 keeps them working) but must emit no verdict-shaped
-  figure. The subject has no betting policy or ledger on purpose, so only the project-level guard
-  can answer, which is the ground a second guard would otherwise mask.
+  being replaced by the canonical invocation, and an exit 2 is accepted only when it is the guard's own refusal: stdout empty and stderr carrying
+  the wrong-framework diagnostic (`this project declares standardVersion <declared>, and this checkout is
+  <executing>` followed by `Nothing was evaluated.`) for the version the subject declares. A usage
+  error, a missing file, a missing betting policy, a refusal about another version, the right words on
+  stdout, and the right words with another exit code all fail the sweep. This matters because a
+  *regressed* guard looks exactly like those: with no betting policy, the later step that fails first is
+  also exit 2 with empty stdout. For `standards.mjs` the parsed arguments were already used:
+  verdict-bearing subcommands must refuse with that diagnostic; `plan`, `explain` and `init --dry-run`
+  may run (ADR 0009 keeps them working) but must emit no verdict-shaped figure. The subject has no
+  betting policy or ledger on purpose, so only the project-level guard can answer, which is the ground
+  a second guard would otherwise mask. The one exception is `standards check`, which refuses a
+  directory without a betting policy before it reaches the guard: it is run against a copy of the
+  subject that has one, so the guard is what answers. There a second guard inside `checkLedger` says
+  the same sentence, so the sweep proves `check` refuses with the guard's diagnostic, not that each of
+  the two guards is individually present.
 - **`ci/pipeline.json`.** Each stage is `npm run <script>` or `npm test` with no further token, so no
   argument slot exists; the runner's side of that is proved by execution under ST-03.
 - **The adapter contract.** Its entrypoint must be a surface the CLI census classifies as refusing
@@ -290,7 +300,13 @@ command, so what is checked is where the names lead. All of it is derived, in
   runner's own evidence record. A local, composite, Docker, unlisted or unpinned action, an
   unrecorded input, and a job `container:` or `services:` all fail. The actions are classified by
   that allowlist and by reading, not run: what third-party action code does inside GitHub's runner
-  is not observed here, only that nothing outside the list can be added unnoticed. The image's only
+  is not observed here, only that nothing outside the list can be added unnoticed. The scan is line
+  based, so it is sound on one spelling of YAML only; it does not try to read the others, it **refuses**
+  them: a flow mapping or flow `steps:`, a quoted or explicit key, an anchor, alias, tag or `<<` merge,
+  a second document, a tab, or a continuation line is itself a failure, and the only flow values
+  allowed are flat lists of plain words under a trigger-filter key (`on`, `branches`, `paths`, ...).
+  Refusing is deliberate: `scripts/yaml.mjs` is a policy-file subset that cannot read the real
+  workflow, so "could not parse" must never read as "found nothing". The image's only
   `RUN` is the known `apk add`, its `CMD` is the runner, and compose overrides no command.
 - **Wrappers.** Classified by **reading**, and recorded as such: executing them needs Docker or a push.
   `test/local-ci.test.mjs` runs `submit-pr` against throwaway repositories; this file adds only a
