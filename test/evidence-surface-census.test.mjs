@@ -997,19 +997,39 @@ const VERDICT_VOCABULARY = /"score"|"standardVersion"|NON_COMPLIANT|COMPLIANT|"v
 function assertAuthorityRefusal({ code, stdout, stderr }, declared, label) {
   assert.equal(code, EXIT_INVOCATION, `${label} did not refuse a subject declaring another framework`);
   assert.equal((stdout ?? "").trim(), "", `${label} printed output for a subject with no authority`);
-  const diagnostic = new RegExp(
-    `this project declares standardVersion ${declared.replace(/\./g, "\\.")}, and this checkout is \\d+\\.\\d+\\.\\d+\\nNothing was evaluated\\.`,
-  );
-  assert.match(
-    stderr ?? "",
-    diagnostic,
-    `${label} exited 2 but not with the framework guard's diagnostic (usage error, missing file or other failure?): ${JSON.stringify(stderr)}`,
+  // The WHOLE of stderr, not a substring of it. A command that said the guard's sentence and then
+  // carried on to a later ENOENT, missing-policy or usage failure is exit 2 with empty stdout too, and
+  // its stderr still CONTAINS the sentence: that is the continue-after-warning regression this sweep
+  // exists to catch. The refusal is the command's prefix and the guard's complete diagnostic, and
+  // nothing before it or after it.
+  assert.ok(
+    guardRefusals(declared).includes(stderr ?? ""),
+    `${label} exited 2 but its stderr is not exactly the framework guard's complete refusal (usage error, missing file, output before or after the guard?): ${JSON.stringify(stderr)}`,
   );
 }
 
-const GUARD_STDERR =
-  "standards check: this project declares standardVersion 1.0.0, and this checkout is 2.0.0\n" +
-  "Nothing was evaluated. A 2.0.0 result labelled 1.0.0 would describe a judgement that\n";
+/** The version this checkout executes: the file the guard itself reads. */
+const EXECUTING_VERSION = readFileSync(path.join(ROOT, "VERSION"), "utf8").trim();
+
+/** Each command names itself before the guard's diagnostic; these are the commands that can refuse. */
+const GUARD_PREFIXES = ["standards policy", "standards validate", "standards audit", "standards status", "standards check"];
+
+/** `declaredVersionRefusalIn`'s complete wrong-framework message, written out independently of it. */
+function guardMessage(declared, executing = EXECUTING_VERSION) {
+  return (
+    `this project declares standardVersion ${declared}, and this checkout is ${executing}\n` +
+    `Nothing was evaluated. A ${executing} result labelled ${declared} would describe a judgement that\n` +
+    `${declared} never made. Check out ${declared} of this pack to evaluate against it, or update the\n` +
+    `project's standardVersion to ${executing} once you have read what changed in CHANGELOG.md.\n` +
+    "This is a configuration error, not a verdict. A project may only be evaluated by the\n" +
+    "framework version it declares — see schemas/project-policy.schema.json.\n"
+  );
+}
+
+/** Every complete stderr a refusing command may produce for a subject declaring `declared`. */
+const guardRefusals = (declared) => GUARD_PREFIXES.map((p) => `${p}: ${guardMessage(declared)}`);
+
+const GUARD_STDERR = guardRefusals("1.0.0").at(-1);
 
 /** The version a fixture subject declares, read from the fixture itself. */
 function declaredVersionOf(target) {
@@ -1160,6 +1180,14 @@ test("package sweep: only the framework guard's own diagnostic is accepted as th
     ["the guard's words but a verdict-shaped figure on stdout", GUARD_STDERR, '{"score": 100}\n'],
     ["the guard's words but exit 1, a verdict", GUARD_STDERR, "", 1],
     ["a refusal about another version", GUARD_STDERR.replace("1.0.0", "9.9.9")],
+    // The guard's sentence is there, and then the command carries on and fails somewhere else. Still
+    // exit 2 with empty stdout, and the guard's words are still in stderr: a substring match accepts it.
+    ["the guard's sentence, then a later missing-file failure", GUARD_STDERR + ENOENT],
+    ["the guard's sentence, then a later usage error", GUARD_STDERR + "standards check: unknown flag '--x'\n"],
+    ["the guard's sentence, then a missing betting policy", GUARD_STDERR + "standards check: no betting-policy.yml in /x\nRun `standards init` first.\n"],
+    ["output before the guard's sentence", ENOENT + GUARD_STDERR],
+    ["the guard's sentence cut short", GUARD_STDERR.split("\n").slice(0, 2).join("\n") + "\n"],
+    ["the guard's sentence with no trailing newline", GUARD_STDERR.trimEnd()],
   ];
   for (const [label, stderr, stdout = "", code = EXIT_INVOCATION] of wrong) {
     for (const command of ["node scripts/policy.mjs", "node scripts/standards.mjs validate .", "node scripts/standards.mjs check"]) {
