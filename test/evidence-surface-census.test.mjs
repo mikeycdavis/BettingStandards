@@ -317,6 +317,51 @@ function makeExternalTarget(version, { exceptRule } = {}) {
   return dir;
 }
 
+/**
+ * Every `export` keyword in a module's SOURCE, for the two scripts that cannot be imported
+ * (`ci-stages.mjs` runs the pipeline on import; `fidelity.mjs` checks and then calls process.exit).
+ *
+ * A regex that wants whitespace after the keyword is not enough: `export{x};`, and `export` followed
+ * directly by a block comment and then a brace list, are valid ESM with none, and `export` can follow another statement on one line. So the
+ * source is scanned: comments, string literals and template literals are skipped, and `export` is
+ * counted as a keyword wherever it stands as a whole identifier that is not a property access. That
+ * covers `export {..}`, `export{..}`, `export*`, `export default`, `export async function`,
+ * `export const/let/var/class/function*` and `export .. from`.
+ *
+ * Bounded on purpose, and biased the safe way: a regular-expression literal containing a quote can
+ * desynchronise it, but a string ends at its line, so the damage stops there, and a false positive
+ * fails loudly where a false negative would classify an export unseen.
+ */
+function exportKeywords(source) {
+  const found = [];
+  const idChar = (c) => c !== undefined && /[A-Za-z0-9_$]/.test(c);
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+    } else if (c === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end === -1 ? source.length : end + 2;
+    } else if (c === '"' || c === "'") {
+      i++;
+      while (i < source.length && source[i] !== c && source[i] !== "\n") i += source[i] === "\\" ? 2 : 1;
+      i++;
+    } else if (c === "`") {
+      i++;
+      while (i < source.length && source[i] !== "`") i += source[i] === "\\" ? 2 : 1;
+      i++;
+    } else if (source.startsWith("export", i) && !idChar(source[i - 1]) && source[i - 1] !== "." && !idChar(source[i + 6])) {
+      found.push(i);
+      i += 6;
+    } else {
+      i++;
+    }
+  }
+  return found;
+}
+
 /** `[name, classification]` pairs for one EXPORT_CENSUS entry, whether per-export or wholesale. */
 function classifiedExports(entry) {
   if (entry.all) return (entry.exports ?? []).map((name) => [name, entry.all]);
@@ -359,6 +404,46 @@ test("every file in scripts/ is classified, and every classification names a rea
   );
 });
 
+test("exportKeywords finds every valid export spelling and ignores prose, strings and property names", () => {
+  const spellings = [
+    "export{newlyExported};",
+    "export/* c */{newlyExported};",
+    "export {a};",
+    "export\n{a};",
+    "export*from'./x.mjs';",
+    "export * as ns from './x.mjs';",
+    "export default function () {}",
+    "export async function f() {}",
+    "export function* g() {}",
+    "export const a = 1;",
+    "export let b = 1;",
+    "export var c = 1;",
+    "export class D {}",
+    "const x = 1; export{x};",
+    "// note\nexport{x};",
+  ];
+  for (const source of spellings) {
+    assert.equal(exportKeywords(source).length, 1, `missed an export spelling: ${JSON.stringify(source)}`);
+  }
+  const notExports = [
+    "// export{x};",
+    "/* export{x}; */",
+    "const s = 'export{x};';",
+    'const s = "export {x}";',
+    "const s = `export{x}`;",
+    "const exports2 = 1; exportsOf(file);",
+    "module.export = 1;",
+    "const reexport = 1;",
+  ];
+  for (const source of notExports) {
+    assert.deepEqual(exportKeywords(source), [], `read a non-export as an export: ${JSON.stringify(source)}`);
+  }
+  // The scripts that are held to "no exports" by source really do have none.
+  for (const file of ["fidelity.mjs", "ci-stages.mjs"]) {
+    assert.deepEqual(exportKeywords(readFileSync(path.join(SCRIPTS, file), "utf8")), [], `${file} has an export`);
+  }
+});
+
 test("every export of every script is classified, and every classification names a real export", async () => {
   const files = readdirSync(SCRIPTS).filter((f) => f.endsWith(".mjs"));
   assert.deepEqual(
@@ -387,7 +472,7 @@ test("every export of every script is classified, and every classification names
       if (entry.noImport || entry.runsOnImport) {
         assert.deepEqual(entry.exports, [], `${file} runs on import, so it can only be classified with no exports`);
         const source = readFileSync(path.join(SCRIPTS, file), "utf8");
-        exported = /^\s*export\s/m.test(source) ? ["(an export statement)"] : [];
+        exported = exportKeywords(source).map((at) => `(an export keyword at offset ${at})`);
       } else {
         exported = await exportsOf(file);
       }
@@ -508,7 +593,7 @@ test("ci-stages.mjs is inert by construction: it exports nothing and can be hand
   const source = readFileSync(path.join(SCRIPTS, "ci-stages.mjs"), "utf8");
 
   assert.deepEqual(
-    source.match(/^\s*export\s/gm) ?? [],
+    exportKeywords(source),
     [],
     "an export would make it programmatically reachable, and this census cannot import it to check",
   );
