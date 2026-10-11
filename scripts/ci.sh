@@ -62,6 +62,46 @@ CI_COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 CI_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 export CI_COMMIT_SHA CI_BRANCH
 
+# THE BUILD CONTEXT IS A STAGED COPY OF THE TREE GIT SEES, never the working directory itself.
+#
+# `submit-pr` calls a tree clean when `git status --porcelain` is empty, and that command does not
+# list ignored files: anything in .gitignore, .git/info/exclude or a global excludes file is absent
+# from it. A `COPY .` of the working directory would still carry those files into the image, so a
+# run could pass against content that is not in the commit being pushed, and a repository-local
+# credential file (.env, .npmrc) would be baked into the image and its cache. .dockerignore cannot
+# fix that, because it cannot know what this developer's private excludes say.
+#
+# So the context is built the way git itself defines "the tree": a throwaway COPY of the real index
+# (the real one is never written), `git add -A` into it (which honours every ignore source), and
+# `checkout-index` of that to a fresh directory. Tracked files, staged changes and untracked files
+# that are not ignored are in; ignored files, .git and artifacts/local-ci are out. The wrapper then
+# checks the staged tree against HEAD: with a clean working tree they must be the same tree.
+CI_CONTEXT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bs-ci-context.XXXXXX")
+CI_CONTEXT_INDEX="$CI_CONTEXT_DIR.index"
+trap 'rm -rf "$CI_CONTEXT_DIR" "$CI_CONTEXT_INDEX"' EXIT
+
+REAL_INDEX=$(git rev-parse --git-path index 2>/dev/null || echo "")
+if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ]; then
+  cp "$REAL_INDEX" "$CI_CONTEXT_INDEX"
+fi
+if ! STAGED_TREE=$(
+      GIT_INDEX_FILE="$CI_CONTEXT_INDEX"
+      export GIT_INDEX_FILE
+      git add -A >/dev/null 2>&1 &&
+      git checkout-index -a --prefix="$CI_CONTEXT_DIR/" &&
+      git write-tree
+    ); then
+  echo "ci: could not stage the build context from the working tree." >&2
+  exit 2
+fi
+if [ -z "$(git status --porcelain)" ] && [ "$STAGED_TREE" != "$(git rev-parse 'HEAD^{tree}' 2>/dev/null)" ]; then
+  echo "ci: the working tree is clean but the staged build context is not HEAD's tree." >&2
+  echo "    Refusing to run: what would be tested is not the commit being recorded." >&2
+  exit 2
+fi
+CI_BUILD_CONTEXT="$CI_CONTEXT_DIR"
+export CI_BUILD_CONTEXT
+
 mkdir -p artifacts/local-ci
 # Delete the previous run's result BEFORE this one starts. If the build fails, or the container never
 # gets far enough to write one, the path advertised as "the latest result" must be empty rather than

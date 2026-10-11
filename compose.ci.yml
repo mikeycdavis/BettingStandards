@@ -8,7 +8,12 @@
 services:
   ci:
     build:
-      context: .
+      # NOT `.`. The context is a directory scripts/ci.* stage from the tree git sees (tracked,
+      # staged and untracked-but-not-ignored files; never ignored files, .git or artifacts/local-ci)
+      # and name in CI_BUILD_CONTEXT. A context of `.` would hand the image whatever happens to be in
+      # the working directory, including files `git status` does not list, so the pipeline could pass
+      # against content that is not in the commit that gets pushed.
+      context: "${CI_BUILD_CONTEXT:?scripts/ci.ps1 or ci.sh must stage the build context; do not build from the working directory}"
       dockerfile: Dockerfile.ci
     # UNIQUE PER RUN, and this is load-bearing rather than tidiness.
     #

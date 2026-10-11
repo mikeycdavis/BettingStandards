@@ -100,7 +100,7 @@ modules' own exports and fails when it meets a member nobody has classified.
 | `node scripts/policy.mjs <policy>` | **`checkPolicy` directly** | it IS the project policy | external subject; the subject carries its own declaration |
 | `node scripts/policy.mjs --betting <file>` | `checkPolicy` | **no** — a betting policy declares no framework | external subject; `--project-policy` names the governing declaration |
 | `checkPolicy(...)` programmatic | itself | the caller's to state | caller declares |
-| `loadBettingPolicy(path)` | — | n/a | primitive: validates a config file's shape and produces no finding, disposition, score, coverage or verdict |
+| `loadBettingPolicy(path)` | called by `checkDecisions` (after its `declaredVersionRefusal`); never by `checkPolicy` | n/a | primitive: validates a config file's shape and produces no finding, disposition, score, coverage or verdict. Deliberately has no guard of its own; pinned in `test/evidence-surface-census.test.mjs`. An earlier note here and in the census said it was reached only through `checkPolicy`, which was false |
 
 ## Where the guard went
 

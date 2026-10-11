@@ -163,12 +163,34 @@ const CLI_CENSUS = {
  * were wrong in exactly the places where a group label had been applied without looking.
  */
 const EXPORT_CENSUS = {
-  "betmath.mjs": { all: "primitive", why: "arithmetic over numbers. Knows nothing of rules, policies or subjects." },
-  "yaml.mjs": { all: "primitive", why: "a parser. Turns text into data and interprets nothing." },
-  "jsonschema.mjs": { all: "primitive", why: "validates a supplied document against a supplied schema. Resolves neither." },
+  // An `all:` entry classifies every export of the module, so it carries an `exports` list: the sweep
+  // below imports the module and compares, so an export added later fails here until somebody looks
+  // at it, instead of inheriting "primitive" unseen.
+  "betmath.mjs": {
+    all: "primitive",
+    exports: [
+      "BetMathError", "DP_MONEY", "DP_PROB", "EPS", "TOL_MONEY", "TOL_PROB", "adjustedEdge", "adjustedProb",
+      "americanFromDecimal", "bankrollPercent", "clvPercent", "decimalFromAmerican", "decimalFromFractional",
+      "edge", "evPerUnit", "evPerUnitWithPush", "exposureTotals", "fairProbsMultiplicative",
+      "impliedFromDecimal", "kellyFraction", "nearlyEqual", "overround", "profitUnits", "roundTo",
+      "stakeFromKelly", "unitStake",
+    ],
+    why: "arithmetic over numbers. Knows nothing of rules, policies or subjects.",
+  },
+  "yaml.mjs": {
+    all: "primitive",
+    exports: ["YamlError", "parseYaml"],
+    why: "a parser. Turns text into data and interprets nothing.",
+  },
+  "jsonschema.mjs": {
+    all: "primitive",
+    exports: ["SchemaError", "assertSchemaSupported", "validate"],
+    why: "validates a supplied document against a supplied schema. Resolves neither.",
+  },
   "ci-stages.mjs": {
     all: "primitive",
     noImport: true,
+    exports: [],
     why:
       "the pipeline runner. NOT imported in-process here: it has no `argv[1] guard` and executes the " +
       "full eight-stage pipeline — this suite included — on import. Its export list is instead read " +
@@ -176,11 +198,36 @@ const EXPORT_CENSUS = {
       "'ci-stages.mjs, executed'), and must expose no export. It takes no path from argv (only " +
       "--verbose and --json) and has no external subject to interpret.",
   },
-  "inventory.mjs": { all: "primitive", why: "`compare` takes two supplied inventories of this repository's own files." },
-  "fidelity.mjs": { all: "primitive", why: "no exports. Checks this repository's own rule text against its own standards documents." },
-  "diagrams.mjs": { all: "primitive", why: "no exports. Checks this repository's own diagrams against its own pipeline definition." },
-  "framework-version.mjs": { all: "authority", why: "this IS the check. Reads a named project policy and the executing VERSION." },
-  "init.mjs": { all: "primitive", why: "`plan`/`apply` write files into a new project. They establish no finding about an existing one." },
+  "inventory.mjs": {
+    all: "primitive",
+    exports: ["compare"],
+    why: "`compare` takes two supplied inventories of this repository's own files.",
+  },
+  "fidelity.mjs": {
+    all: "primitive",
+    runsOnImport: true,
+    exports: [],
+    why: "no exports. Checks this repository's own rule text against its own standards documents.",
+  },
+  "diagrams.mjs": {
+    all: "primitive",
+    exports: ["check", "mermaidBlocks", "normalize"],
+    why:
+      "this entry used to read \"no exports\"; the enumeration above found three. `normalize` and `mermaidBlocks` " +
+      "transform text. `check(root)` compares the Mermaid blocks in a tree's documents with the stage list in that " +
+      "tree's ci/pipeline.json and returns a string list; it opens no rule catalog, schema or policy and attributes " +
+      "no finding, disposition, score or verdict, so it carries no authority check.",
+  },
+  "framework-version.mjs": {
+    all: "authority",
+    exports: ["OWN_PROJECT_POLICY", "WrongFramework", "declaredVersionRefusal", "declaredVersionRefusalIn", "packVersion"],
+    why: "this IS the check. Reads a named project policy and the executing VERSION.",
+  },
+  "init.mjs": {
+    all: "primitive",
+    exports: ["MARKER", "apply", "plan"],
+    why: "`plan`/`apply` write files into a new project. They establish no finding about an existing one.",
+  },
   "catalog.mjs": {
     loadCatalog: "loader",
     resolve: "primitive",
@@ -238,8 +285,14 @@ const EXPORT_CENSUS = {
     why:
       "`checkPolicy` loads THIS checkout's rule catalog and applies `nonExemptible` to a policy document it was " +
       "pointed at — policy-level authority, and the surface the third review found. `loadBettingPolicy` validates " +
-      "a config file's shape against a schema and produces no finding, disposition, score, coverage or verdict; " +
-      "its only CLI reachability is through checkPolicy, which guards.",
+      "a config file's shape against a schema and produces no finding, disposition, score, coverage or verdict. " +
+      "An earlier version of this entry said its only reachability was through `checkPolicy`; that was false, " +
+      "because `checkPolicy` never calls it. Its production caller is `checkDecisions` (decisions.mjs), which " +
+      "runs `declaredVersionRefusal` before it, and this repository's own tests call it directly. It is kept a " +
+      "primitive deliberately and carries NO authority guard of its own: it has no subject to establish an " +
+      "authority for and attributes nothing, and a guard there would be placed because the function is " +
+      "exported, not because evidence is made there. The disposition is pinned by 'loadBettingPolicy is a " +
+      "primitive, reached in production only through a guarded checkDecisions' at the foot of this file.",
   },
   "standards.mjs": {
     buildPlan: "primitive",
@@ -264,6 +317,100 @@ function makeExternalTarget(version, { exceptRule } = {}) {
   return dir;
 }
 
+/**
+ * FAIL-CLOSED: the lines of a source-scanned module on which the word `export` appears AT ALL, other
+ * than lines the caller has allowlisted by their exact trimmed text.
+ *
+ * This is the gate for the two modules that cannot be imported (`ci-stages.mjs`, `fidelity.mjs`) and
+ * are known to export nothing. It deliberately does not try to understand the syntax: a scanner that
+ * must decide what is a comment, a string or a regular-expression literal can be talked out of an
+ * export by a quote inside a regex (`const r = /"/; export{x};`). Here the raw text is read, comments
+ * and strings included, so ANY appearance of the whole word fails and a human has to classify it by
+ * adding the exact line to the allowlist. A false positive costs one line in a table; a false
+ * negative classifies an export unseen.
+ */
+function exportWordLines(source, allowedLines = []) {
+  const hits = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    if (/\bexport\b/.test(line) && !allowedLines.includes(line.trim())) hits.push(`line ${index + 1}: ${line.trim()}`);
+  });
+  return hits;
+}
+
+/** Exact trimmed lines on which the word may appear in a source-scanned module. Empty: it appears nowhere. */
+const SOURCE_SCANNED_EXPORT_ALLOWLIST = {
+  "fidelity.mjs": [],
+  "ci-stages.mjs": [],
+};
+
+/**
+ * Every `export` keyword in a module's SOURCE, for the two scripts that cannot be imported
+ * (`ci-stages.mjs` runs the pipeline on import; `fidelity.mjs` checks and then calls process.exit).
+ *
+ * A regex that wants whitespace after the keyword is not enough: `export{x};`, and `export` followed
+ * directly by a block comment and then a brace list, are valid ESM with none, and `export` can follow another statement on one line. So the
+ * source is scanned: comments, string literals and template literals are skipped, and `export` is
+ * counted as a keyword wherever it stands as a whole identifier that is not a property access. That
+ * covers `export {..}`, `export{..}`, `export*`, `export default`, `export async function`,
+ * `export const/let/var/class/function*` and `export .. from`.
+ *
+ * Bounded on purpose, and biased the safe way: a regular-expression literal containing a quote can
+ * desynchronise it, but a string ends at its line, so the damage stops there, and a false positive
+ * fails loudly where a false negative would classify an export unseen.
+ */
+function exportKeywords(source) {
+  const found = [];
+  const idChar = (c) => c !== undefined && /[A-Za-z0-9_$]/.test(c);
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+    } else if (c === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      i = end === -1 ? source.length : end + 2;
+    } else if (c === '"' || c === "'") {
+      i++;
+      while (i < source.length && source[i] !== c && source[i] !== "\n") i += source[i] === "\\" ? 2 : 1;
+      i++;
+    } else if (c === "`") {
+      i++;
+      while (i < source.length && source[i] !== "`") i += source[i] === "\\" ? 2 : 1;
+      i++;
+    } else if (source.startsWith("export", i) && !idChar(source[i - 1]) && source[i - 1] !== "." && !idChar(source[i + 6])) {
+      found.push(i);
+      i += 6;
+    } else {
+      i++;
+    }
+  }
+  return found;
+}
+
+/** `[name, classification]` pairs for one EXPORT_CENSUS entry, whether per-export or wholesale. */
+function classifiedExports(entry) {
+  if (entry.all) return (entry.exports ?? []).map((name) => [name, entry.all]);
+  return Object.entries(entry).filter(([key]) => key !== "why" && key !== "noImport");
+}
+
+/**
+ * The export names of a module, read in a child process. Some scripts run on import (fidelity.mjs
+ * prints and checks, with no argv guard), so importing them in-process would put their side effects
+ * in this suite; a child keeps them out and reports only the names.
+ */
+async function exportsOf(file) {
+  const url = pathToFileURL(path.join(SCRIPTS, file)).href;
+  const { stdout } = await run(process.execPath, [
+    "--input-type=module",
+    "-e",
+    `import(${JSON.stringify(url)}).then((m) => console.log("\\nEXPORTS=" + JSON.stringify(Object.keys(m).sort())));`,
+  ]);
+  const line = stdout.split("\n").find((l) => l.startsWith("EXPORTS="));
+  assert.ok(line, `could not read the exports of ${file}`);
+  return JSON.parse(line.slice("EXPORTS=".length));
+}
+
 /* --------------------------------------------------------------------------------------------
  * The census is complete, because it is derived.
  * ------------------------------------------------------------------------------------------ */
@@ -283,6 +430,74 @@ test("every file in scripts/ is classified, and every classification names a rea
   );
 });
 
+test("exportKeywords finds every valid export spelling and ignores prose, strings and property names", () => {
+  const spellings = [
+    "export{newlyExported};",
+    "export/* c */{newlyExported};",
+    "export {a};",
+    "export\n{a};",
+    "export*from'./x.mjs';",
+    "export * as ns from './x.mjs';",
+    "export default function () {}",
+    "export async function f() {}",
+    "export function* g() {}",
+    "export const a = 1;",
+    "export let b = 1;",
+    "export var c = 1;",
+    "export class D {}",
+    "const x = 1; export{x};",
+    "// note\nexport{x};",
+  ];
+  for (const source of spellings) {
+    assert.equal(exportKeywords(source).length, 1, `missed an export spelling: ${JSON.stringify(source)}`);
+  }
+  const notExports = [
+    "// export{x};",
+    "/* export{x}; */",
+    "const s = 'export{x};';",
+    'const s = "export {x}";',
+    "const s = `export{x}`;",
+    "const exports2 = 1; exportsOf(file);",
+    "module.export = 1;",
+    "const reexport = 1;",
+  ];
+  for (const source of notExports) {
+    assert.deepEqual(exportKeywords(source), [], `read a non-export as an export: ${JSON.stringify(source)}`);
+  }
+  // The scripts that are held to "no exports" by source really do have none.
+  for (const file of ["fidelity.mjs", "ci-stages.mjs"]) {
+    const source = readFileSync(path.join(SCRIPTS, file), "utf8");
+    assert.deepEqual(exportKeywords(source), [], `${file} has an export`);
+    assert.deepEqual(exportWordLines(source, SOURCE_SCANNED_EXPORT_ALLOWLIST[file]), [], `${file} contains the word export`);
+  }
+});
+
+test("the fail-closed gate flags the word anywhere, including after a regular-expression literal", () => {
+  // Each of these hides an export from a scanner that tracks strings, because a quote inside a regex
+  // literal opens a "string" that swallows the rest of the line. The gate reads raw text and so
+  // cannot be hidden from.
+  const hidden = [
+    'const x=1, r=/"/; export{x};',
+    "const r=/'/;export{x}",
+    "const r=/`/;export{x}",
+    "export{newlyExported};",
+    "export/* c */{newlyExported};",
+    "export*from'./yaml.mjs';",
+    "const s = 'export';",
+    "// export",
+    "const exported = 1; /* the export */",
+  ];
+  for (const line of hidden) {
+    assert.equal(exportWordLines(line).length, 1, `the gate missed: ${JSON.stringify(line)}`);
+  }
+  assert.deepEqual(exportWordLines("const exports2 = exportsOf(file);"), [], "a longer identifier is not the word");
+  // An occurrence is admitted only by its exact line, so a human has classified it.
+  assert.deepEqual(exportWordLines("// export is discussed here", ["// export is discussed here"]), []);
+  assert.equal(exportWordLines("// export is discussed here; export{x};", ["// export is discussed here"]).length, 1);
+  assert.deepEqual(SOURCE_SCANNED_EXPORT_ALLOWLIST["fidelity.mjs"], []);
+  assert.deepEqual(SOURCE_SCANNED_EXPORT_ALLOWLIST["ci-stages.mjs"], []);
+});
+
 test("every export of every script is classified, and every classification names a real export", async () => {
   const files = readdirSync(SCRIPTS).filter((f) => f.endsWith(".mjs"));
   assert.deepEqual(
@@ -296,7 +511,30 @@ test("every export of every script is classified, and every classification names
   for (const file of files) {
     const entry = EXPORT_CENSUS[file];
     assert.ok(entry.why, `${file} is classified with no reason recorded`);
-    if (entry.noImport || entry.all) continue; // classified wholesale, with the reason recorded above
+    if (entry.all) {
+      // A wholesale classification is a classification of EVERY export, so the exports must be
+      // enumerated or it says nothing about a member added later. These entries used to be skipped
+      // here, which let `diagrams.mjs` be recorded as "no exports" while exporting three.
+      assert.ok(
+        Array.isArray(entry.exports),
+        `${file} is classified wholesale (all: "${entry.all}") with no \`exports\` list, so a new export would inherit the classification unseen`,
+      );
+      // A file that runs on import (`noImport`: the pipeline; `runsOnImport`: fidelity.mjs, which
+      // checks and then calls process.exit) cannot be asked for its exports, so it is held to an
+      // empty list and the SOURCE is checked for any export statement instead.
+      let exported;
+      if (entry.noImport || entry.runsOnImport) {
+        assert.deepEqual(entry.exports, [], `${file} runs on import, so it can only be classified with no exports`);
+        const source = readFileSync(path.join(SCRIPTS, file), "utf8");
+        exported = exportWordLines(source, SOURCE_SCANNED_EXPORT_ALLOWLIST[file] ?? []).map((hit) => `(the word export, ${hit})`);
+      } else {
+        exported = await exportsOf(file);
+      }
+      for (const name of exported) if (!entry.exports.includes(name)) undeclared.push(`${file}:${name}`);
+      for (const name of entry.exports) if (!exported.includes(name)) phantom.push(`${file}:${name}`);
+      continue;
+    }
+    if (entry.noImport) continue;
     const module = await import(pathToFileURL(path.join(SCRIPTS, file)).href);
     const exported = Object.keys(module).sort();
     const classified = Object.keys(entry).filter((k) => k !== "why");
@@ -409,7 +647,7 @@ test("ci-stages.mjs is inert by construction: it exports nothing and can be hand
   const source = readFileSync(path.join(SCRIPTS, "ci-stages.mjs"), "utf8");
 
   assert.deepEqual(
-    source.match(/^\s*export\s/gm) ?? [],
+    exportWordLines(source, SOURCE_SCANNED_EXPORT_ALLOWLIST["ci-stages.mjs"]),
     [],
     "an export would make it programmatically reachable, and this census cannot import it to check",
   );
@@ -443,30 +681,104 @@ test("ci-stages.mjs is inert by construction: it exports nothing and can be hand
  * demand an authority.
  * ------------------------------------------------------------------------------------------ */
 
-test("every surface classified as a resolver actually demands an authority", async () => {
-  // THE GROUND, CHECKED. `checkRecord` was classified a primitive on the recorded ground that its
-  // caller hands it policy and schema. It does take those — the prose was accurate about the
-  // signature and wrong about what it implied, which is why checking the signature would not have
-  // caught it. What matters is not what a surface RECEIVES but whether it can produce a finding
-  // about a subject with no authority named, so that is what is asserted here.
-  const { checkRecord, checkLedger } = await import(pathToFileURL(path.join(SCRIPTS, "decisions.mjs")).href);
-  const { evaluate } = await import(pathToFileURL(path.join(SCRIPTS, "compliance.mjs")).href);
+/**
+ * One probe per surface classified `resolver`. The LIST of surfaces is not written here: it is read
+ * from EXPORT_CENSUS, and the test fails in both directions if this table and the census disagree.
+ * That is the point of deriving it — the previous version hard-coded three surfaces and so exercised
+ * `checkRecord`, `checkLedger` and `evaluate` while `checkPolicy`, which the same census classifies
+ * as a resolver, was never run.
+ *
+ * Each probe hands the surface a subject with no authority named, or one declaring a framework this
+ * checkout is not, and requires a refusal. `checkOwnExamples` is the one resolver that supplies its
+ * own authority (this repository's project-policy.yml) and so cannot be handed a foreign subject.
+ */
+const RESOLVER_PROBES = {
+  "decisions.mjs:checkDecisions": async (fn) => {
+    const target = makeExternalTarget("1.0.0");
+    await assert.rejects(
+      () => fn({ policyPath: path.join(ROOT, "betting-policy.yml") }),
+      /projectPolicyPath/,
+      "checkDecisions resolves the record schema and policy files — it must demand a named authority",
+    );
+    await assert.rejects(
+      () =>
+        fn({
+          dir: path.join(ROOT, "examples/ledger"),
+          policyPath: path.join(ROOT, "betting-policy.yml"),
+          projectPolicyPath: path.join(target, "project-policy.yml"),
+        }),
+      (error) => error.name === "WrongFramework",
+      "checkDecisions was handed a subject declaring another framework and did not refuse",
+    );
+  },
+  "decisions.mjs:checkLedger": async (fn) => {
+    await assert.rejects(
+      () => fn([], {}),
+      /projectPolicyPath/,
+      "checkLedger embeds this checkout's rule ids — it must demand a named authority",
+    );
+  },
+  "decisions.mjs:checkRecord": async (fn) => {
+    await assert.rejects(
+      () => fn({ id: "x" }, { policy: {}, schema: {}, file: "x" }),
+      /projectPolicyPath/,
+      "checkRecord embeds this checkout's rule ids — a supplied betting policy is not an authority",
+    );
+  },
+  "decisions.mjs:checkOwnExamples": async (fn) => {
+    // The self-checkout case: it names this repository's own project-policy.yml, so there is no
+    // foreign subject to hand it. What can be checked is that it still passes through the guarded
+    // door and returns an evaluation rather than a refusal or nothing.
+    const result = await fn();
+    assert.ok(result && result.ledgerPresent === true, "checkOwnExamples did not evaluate the worked examples");
+    assert.ok(result.records > 0, "checkOwnExamples evaluated no records");
+  },
+  "compliance.mjs:evaluate": async (fn) => {
+    await assert.rejects(
+      () => fn({ catalog: {}, policy: { standardVersion: "1.0.0" }, findings: [], evaluated: [] }),
+      (error) => error.name === "WrongFramework",
+      "evaluate embeds the verdict algebra and is handed the declaration — it must read it",
+    );
+  },
+  "policy.mjs:checkPolicy": async (fn) => {
+    const target = makeExternalTarget("1.0.0");
+    await assert.rejects(
+      () =>
+        fn(
+          path.join(target, "project-policy.yml"),
+          path.join(ROOT, "schemas", "project-policy.schema.json"),
+          "2026-01-01",
+        ),
+      (error) => error.name === "WrongFramework",
+      "checkPolicy loads this checkout's rule catalog for a policy it was pointed at — it must read the declaration",
+    );
+  },
+};
 
-  await assert.rejects(
-    () => checkLedger([], {}),
-    /projectPolicyPath/,
-    "checkLedger embeds this checkout's rule ids — it must demand a named authority",
+test("every surface classified as a resolver actually demands an authority, and none is left unprobed", async () => {
+  // THE GROUND, CHECKED. `checkRecord` was classified a primitive on the recorded ground that its
+  // caller hands it policy and schema. What matters is not what a surface RECEIVES but whether it
+  // can produce a finding about a subject with no authority named, so that is what is asserted.
+  const resolvers = [];
+  for (const [file, entry] of Object.entries(EXPORT_CENSUS)) {
+    for (const [name, classification] of classifiedExports(entry)) {
+      if (classification === "resolver") resolvers.push(`${file}:${name}`);
+    }
+  }
+  assert.deepEqual(
+    resolvers.sort(),
+    Object.keys(RESOLVER_PROBES).sort(),
+    "the resolvers in EXPORT_CENSUS and the probes in RESOLVER_PROBES differ. A resolver with no probe is " +
+      "a classification that is claimed and never run; a probe with no resolver checks something the " +
+      "census no longer says",
   );
-  await assert.rejects(
-    () => checkRecord({ id: "x" }, { policy: {}, schema: {}, file: "x" }),
-    /projectPolicyPath/,
-    "checkRecord embeds this checkout's rule ids — a supplied betting policy is not an authority",
-  );
-  await assert.rejects(
-    () => evaluate({ catalog: {}, policy: { standardVersion: "1.0.0" }, findings: [], evaluated: [] }),
-    (error) => error.name === "WrongFramework",
-    "evaluate embeds the verdict algebra and is handed the declaration — it must read it",
-  );
+
+  for (const key of resolvers) {
+    const [file, name] = key.split(":");
+    const module = await import(pathToFileURL(path.join(SCRIPTS, file)).href);
+    assert.equal(typeof module[name], "function", `${key} is classified a resolver but is not a function export`);
+    await RESOLVER_PROBES[key](module[name]);
+  }
 });
 
 /* --------------------------------------------------------------------------------------------
@@ -1575,4 +1887,54 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
       .join("\n");
     assert.doesNotMatch(code, reaches, `${f} launches a surface that interprets a subject`);
   }
+});
+
+/* --------------------------------------------------------------------------------------------
+ * `loadBettingPolicy`: the disposition, and the reachability claim it rests on, pinned.
+ *
+ * It was classified primitive on the ground that its "only CLI reachability is through checkPolicy,
+ * which guards". `checkPolicy` never calls it. The claim was never checked, and what actually holds is
+ * different: it is reached in production through `checkDecisions`, behind `declaredVersionRefusal`.
+ *
+ * The disposition is unchanged and deliberate — a primitive with NO authority guard of its own. What
+ * is asserted here is the part that keeps that safe: nothing in scripts/ other than the guarded
+ * `checkDecisions` calls it, and `checkDecisions` asks for the authority first. A new production
+ * caller, or a reordering that loads the policy before the refusal, fails this test and gets looked
+ * at, which is what a recorded reason is for.
+ * ------------------------------------------------------------------------------------------ */
+
+test("loadBettingPolicy is a primitive, reached in production only through a guarded checkDecisions", () => {
+  const read = (file) => readFileSync(path.join(SCRIPTS, file), "utf8");
+  const code = (text) => text.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
+
+  // Classified a primitive, with no guard of its own.
+  assert.equal(EXPORT_CENSUS["policy.mjs"].loadBettingPolicy, "primitive");
+  const policy = code(read("policy.mjs"));
+  const body = policy.slice(
+    policy.indexOf("export async function loadBettingPolicy"),
+    policy.indexOf("\n}\n", policy.indexOf("export async function loadBettingPolicy")),
+  );
+  assert.ok(body.length > 0, "could not locate loadBettingPolicy");
+  assert.doesNotMatch(body, /declaredVersionRefusal|WrongFramework/, "loadBettingPolicy gained an authority guard; the recorded disposition is none");
+
+  // Callers in production code: exactly decisions.mjs, and never checkPolicy.
+  const callers = readdirSync(SCRIPTS)
+    .filter((f) => f.endsWith(".mjs") && f !== "policy.mjs")
+    .filter((f) => /\bloadBettingPolicy\s*\(/.test(code(read(f))));
+  assert.deepEqual(callers, ["decisions.mjs"], "a new production caller of loadBettingPolicy appeared; classify what it reaches");
+  const checkPolicySource = policy.slice(policy.indexOf("export async function checkPolicy"));
+  assert.doesNotMatch(
+    checkPolicySource.slice(0, checkPolicySource.indexOf("\n}\n")),
+    /\bloadBettingPolicy\s*\(/,
+    "checkPolicy calls loadBettingPolicy, which the rationale says it does not",
+  );
+
+  // In checkDecisions the refusal is asked for first.
+  const decisions = code(read("decisions.mjs"));
+  const start = decisions.indexOf("export async function checkDecisions");
+  const fn = decisions.slice(start, decisions.indexOf("\n}\n", start));
+  const refusal = fn.indexOf("declaredVersionRefusal(");
+  const load = fn.indexOf("loadBettingPolicy(");
+  assert.ok(refusal !== -1 && load !== -1, "checkDecisions no longer shows both calls");
+  assert.ok(refusal < load, "checkDecisions loads the betting policy before it has established the authority");
 });

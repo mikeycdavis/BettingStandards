@@ -25,6 +25,14 @@ run `node scripts/ci-stages.mjs` directly for a fast inner loop, but that is a c
 gate — it uses whatever Node and whatever working tree you happen to have, which is the state the
 container exists to eliminate.
 
+**What goes into the image.** The build context is not your working directory. `scripts/ci.*` stage
+it from the tree git sees: tracked files, staged changes and untracked files that are not ignored.
+Anything git ignores (`.gitignore`, `.git/info/exclude`, a global excludes file), `.git` itself and
+`artifacts/local-ci` are left out, because `git status --porcelain` does not list ignored files and
+`submit-pr` would otherwise call a tree clean while the image held content that is not in the commit.
+With a clean tree the staged tree must equal HEAD's tree or the wrapper refuses to run. Building
+`compose.ci.yml` by hand needs `CI_BUILD_CONTEXT` set to such a directory and fails without it.
+
 ## Running CI
 
 ```powershell
