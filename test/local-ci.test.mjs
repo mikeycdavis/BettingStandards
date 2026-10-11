@@ -20,7 +20,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, cpSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, cpSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -387,6 +387,176 @@ describe("submit-pr refuses to publish an unverified commit", { skip }, () => {
       assert.equal(r.status, 2);
       assert.match(`${r.stdout}${r.stderr}`, /--skip-ci does not exist/);
       assert.equal(s.remoteRefs(), "");
+    } finally {
+      s.cleanup();
+    }
+  });
+});
+
+// ── the build context is the tree git sees, not the working directory ────────────────────────────
+//
+// PR #1 review (thread 3792174618, on Dockerfile.ci): `COPY . /repo` took whatever was in the
+// working directory. `submit-pr` calls the tree clean when `git status --porcelain` is empty, and
+// that command omits ignored files, so a file kept out of git through .git/info/exclude or a global
+// excludes file entered the image while the tree still read clean — the pipeline could pass against
+// content absent from the commit that gets pushed, and repository-local credentials (.env, .npmrc)
+// were baked into the image and its cache. `.dockerignore` cannot close that: it cannot know what a
+// developer's private excludes say. The context is therefore staged from git's own view of the tree.
+
+describe("the CI build context is staged from the tree git sees", () => {
+  test("compose.ci.yml builds from a staged context and refuses to default to the working directory", () => {
+    const compose = readFileSync(path.join(ROOT, "compose.ci.yml"), "utf8");
+    const contextLine = compose.split("\n").find((line) => /^\s*context:/.test(line));
+    assert.ok(contextLine, "compose.ci.yml declares no build context");
+    assert.match(
+      contextLine,
+      /\$\{CI_BUILD_CONTEXT:\?/,
+      "the build context is not the staged directory the wrappers name, and must fail loudly when unset",
+    );
+    assert.doesNotMatch(contextLine, /context:\s*"?\.\/?"?\s*$/, "the build context is the working directory again");
+  });
+
+  test("both wrappers stage the context from a throwaway index, never from the working directory", () => {
+    for (const [name, source] of wrappers) {
+      const code = source
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*#/.test(line))
+        .join("\n");
+      assert.match(code, /GIT_INDEX_FILE/, `${name} does not stage through a separate index`);
+      assert.match(code, /\badd -A\b/, `${name} does not let git decide what is in the tree (git add -A honours every ignore source)`);
+      assert.match(code, /checkout-index/, `${name} does not materialise the staged tree`);
+      assert.match(code, /CI_BUILD_CONTEXT/, `${name} never names the staged directory to compose`);
+      assert.match(code, /HEAD\^\{tree\}/, `${name} does not compare the staged tree with HEAD's tree`);
+      const staged = code.search(/checkout-index/);
+      const built = code.search(/compose.*\bbuild\b/);
+      assert.ok(staged !== -1 && built !== -1 && staged < built, `${name} stages the context after it builds`);
+    }
+  });
+
+  test("Dockerfile.ci copies the staged context, and .dockerignore still leaves history and results out", () => {
+    const dockerfile = readFileSync(path.join(ROOT, "Dockerfile.ci"), "utf8");
+    const copies = dockerfile.split("\n").filter((line) => /^\s*COPY\b/.test(line));
+    assert.equal(copies.length, 1, "Dockerfile.ci should have exactly one COPY, of the staged context");
+    const ignore = readFileSync(path.join(ROOT, ".dockerignore"), "utf8");
+    for (const pattern of [".git", "artifacts/local-ci", "node_modules"]) {
+      assert.match(ignore, new RegExp(`^${pattern.replace(/[./]/g, "\\$&")}\\s*$`, "m"), `.dockerignore no longer excludes ${pattern}`);
+    }
+  });
+});
+
+describe("ci.sh stages exactly the tree git sees (run against a stub docker)", { skip }, () => {
+  /** A throwaway repository with ci.sh installed, a private exclude, and a stub `docker` that
+   *  records the directory it was told to build from. */
+  function ciSandbox() {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "bs-ci-context-test-"));
+    const work = path.join(dir, "work");
+    const bin = path.join(dir, "bin");
+    const out = path.join(dir, "out");
+    mkdirSync(path.join(work, "scripts"), { recursive: true });
+    mkdirSync(bin);
+    mkdirSync(out);
+    run("git", ["init", "-q", "--initial-branch=main", work]);
+    const g = (...args) => run("git", ["-C", work, ...args]);
+    g("config", "user.email", "ci-test@example.invalid");
+    g("config", "user.name", "CI Test");
+
+    cpSync(path.join(ROOT, "scripts", "ci.sh"), path.join(work, "scripts", "ci.sh"));
+    for (const f of ["Dockerfile.ci", "compose.ci.yml", ".dockerignore"]) cpSync(path.join(ROOT, f), path.join(work, f));
+    writeFileSync(path.join(work, ".gitignore"), "artifacts/local-ci/\nignored-by-gitignore.txt\n");
+    writeFileSync(path.join(work, "src.txt"), "committed content\n");
+    g("add", "-A");
+    g("commit", "-q", "-m", "initial");
+
+    // The three kinds of file the review was about, none of which `git status --porcelain` lists.
+    writeFileSync(path.join(work, ".git", "info", "exclude"), "secret.env\n", { flag: "a" });
+    writeFileSync(path.join(work, "secret.env"), "TOKEN=do-not-bake-me\n");
+    writeFileSync(path.join(work, "ignored-by-gitignore.txt"), "ignored\n");
+    mkdirSync(path.join(work, "artifacts", "local-ci"), { recursive: true });
+    writeFileSync(path.join(work, "artifacts", "local-ci", "latest.json"), '{"status":"PASS"}\n');
+
+    const posix = (p) => p.replace(/\\/g, "/");
+    const stub = path.join(bin, "docker");
+    writeFileSync(
+      stub,
+      [
+        "#!/bin/sh",
+        'for a in "$@"; do',
+        '  if [ "$a" = build ]; then',
+        '    (cd "$CI_BUILD_CONTEXT" && find . -type f | sort) > "$STUB_OUT/context.txt"',
+        '    cp "$CI_BUILD_CONTEXT/src.txt" "$STUB_OUT/src.txt"',
+        '    (cygpath -m "$CI_BUILD_CONTEXT" 2>/dev/null || echo "$CI_BUILD_CONTEXT") > "$STUB_OUT/ctxpath.txt"',
+        "  fi",
+        "done",
+        "exit 0",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    return {
+      dir,
+      work,
+      git: g,
+      context: () => readFileSync(path.join(out, "context.txt"), "utf8").split("\n").filter(Boolean),
+      contextPath: () => readFileSync(path.join(out, "ctxpath.txt"), "utf8").trim(),
+      stagedSrc: () => readFileSync(path.join(out, "src.txt"), "utf8"),
+      ci: () =>
+        spawnSync(SHELL, [path.join(work, "scripts", "ci.sh")], {
+          cwd: work,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+            STUB_OUT: posix(out),
+          },
+        }),
+      cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    };
+  }
+
+  test("ignored and private files never reach the context; tracked, modified and new files do", () => {
+    const s = ciSandbox();
+    try {
+      writeFileSync(path.join(s.work, "src.txt"), "modified in the working tree\n");
+      writeFileSync(path.join(s.work, "brand-new.txt"), "untracked, not ignored\n");
+
+      const r = s.ci();
+      assert.equal(r.status, 0, `ci.sh failed against the stub: ${r.stdout}${r.stderr}`);
+      const files = s.context();
+
+      for (const present of ["./src.txt", "./brand-new.txt", "./Dockerfile.ci", "./compose.ci.yml", "./scripts/ci.sh"]) {
+        assert.ok(files.includes(present), `${present} is missing from the build context: ${files.join(" ")}`);
+      }
+      for (const absent of ["./secret.env", "./ignored-by-gitignore.txt", "./artifacts/local-ci/latest.json"]) {
+        assert.ok(!files.includes(absent), `${absent} reached the build context although git ignores it`);
+      }
+      assert.ok(!files.some((f) => f.startsWith("./.git/")), "history reached the build context");
+      // (autocrlf may rewrite the line ending on the way through; the content is what is compared)
+      assert.equal(
+        s.stagedSrc().replace(/\r\n/g, "\n"),
+        "modified in the working tree\n",
+        "the context holds HEAD's copy, not the tree under test",
+      );
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("staging neither moves HEAD nor touches the real index, and the staged directory is removed", () => {
+    const s = ciSandbox();
+    try {
+      writeFileSync(path.join(s.work, "brand-new.txt"), "untracked\n");
+      const before = {
+        head: s.git("rev-parse", "HEAD").stdout,
+        index: s.git("ls-files", "-s").stdout,
+        status: s.git("status", "--porcelain").stdout,
+      };
+      const r = s.ci();
+      assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+      assert.equal(s.git("rev-parse", "HEAD").stdout, before.head);
+      assert.equal(s.git("ls-files", "-s").stdout, before.index, "the real index was written");
+      assert.equal(s.git("status", "--porcelain").stdout, before.status, "staging changed what git status reports");
+      assert.equal(existsSync(s.contextPath()), false, "the staged build context was left behind");
     } finally {
       s.cleanup();
     }

@@ -9,6 +9,16 @@
 #      scripts/submit-pr.*, that is what makes "the commit pushed is the commit that passed" a
 #      property rather than an intention.
 #
+# WHAT THE BUILD CONTEXT IS. `COPY .` copies the build CONTEXT, and the context is not the working
+# directory: scripts/ci.sh and scripts/ci.ps1 stage it from the tree git sees (tracked files, staged
+# changes, and untracked files that are not ignored) and compose.ci.yml refuses to build without that
+# staged directory (CI_BUILD_CONTEXT). Ignored files never get here. That matters because
+# `git status --porcelain`, which submit-pr uses to call a tree clean, does not list them: a file in
+# .git/info/exclude or a global excludes file would otherwise be copied into the image while the tree
+# still read clean, and the pipeline could pass against content that is not in the pushed commit.
+# Credentials kept in ignored files (.env, .npmrc) would also be baked into the image and its cache.
+# .dockerignore is a second, weaker line: it cannot know what a developer's private excludes say.
+#
 # NO INSTALL STEP, ON PURPOSE. This repository has zero third-party dependencies and that decision is
 # enforced structurally (ADR 0006): there is no `npm ci` here, so adding a dependency breaks the
 # build rather than passing review. Do not add one to "fix" a failure.

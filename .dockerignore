@@ -1,5 +1,10 @@
 # Keep the CI image a tree, not a history.
 #
+# This file is the SECOND line of defence, not the first. scripts/ci.sh and scripts/ci.ps1 stage the
+# build context from the tree git sees (see Dockerfile.ci), so ignored files, .git and
+# artifacts/local-ci are already absent from it. The patterns below stay so that a `docker build`
+# started by hand against a full checkout still leaves history and previous results out.
+#
 # .git is excluded so nothing inside the container can read or write repository history, and so the
 # image content is exactly the files under test. scripts/ci-stages.mjs takes the commit SHA from the
 # CI_COMMIT_SHA environment variable instead, which the host script sets from the SHA it verified.

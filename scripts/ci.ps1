@@ -63,7 +63,16 @@ $Status = 0
 # pipeline would evaluate another tree while recording this commit's SHA. See compose.ci.yml.
 $env:CI_IMAGE_TAG = $Project
 
+$ContextDir = Join-Path ([IO.Path]::GetTempPath()) "bs-ci-context-$RunId"
+$ContextIndex = "$ContextDir.index"
+
+function Remove-BuildContext {
+    Remove-Item -LiteralPath $ContextDir -Recurse -Force -ErrorAction Ignore
+    Remove-Item -LiteralPath $ContextIndex -Force -ErrorAction Ignore
+}
+
 function Invoke-Cleanup {
+    Remove-BuildContext
     # Scoped to THIS run by name. -v removes only volumes this project declared; it cannot reach a
     # developer's database volume, which belongs to a different project. `rmi` drops this run's TAG
     # only -- layers are content-addressed and stay cached for the next run.
@@ -80,6 +89,35 @@ try {
     $env:CI_COMMIT_SHA = (& git rev-parse HEAD 2>$null)
     $env:CI_BRANCH = (& git rev-parse --abbrev-ref HEAD 2>$null)
     if ($LASTEXITCODE -ne 0) { $env:CI_COMMIT_SHA = ''; $env:CI_BRANCH = '' }
+
+    # THE BUILD CONTEXT IS A STAGED COPY OF THE TREE GIT SEES, never the working directory itself.
+    # `git status --porcelain` (what submit-pr calls "clean") does not list ignored files, so a COPY
+    # of the working directory would carry anything in .gitignore, .git/info/exclude or a global
+    # excludes file into the image. The context is therefore built the way git defines the tree: a
+    # throwaway copy of the real index, `git add -A` into it, `checkout-index` to a fresh directory.
+    # Ignored files, .git and artifacts/local-ci are out; with a clean tree it must equal HEAD's tree.
+    $RealIndex = (& git rev-parse --git-path index 2>$null)
+    if ($RealIndex -and (Test-Path -LiteralPath $RealIndex)) {
+        Copy-Item -LiteralPath $RealIndex -Destination $ContextIndex -Force
+    }
+    $env:GIT_INDEX_FILE = $ContextIndex
+    try {
+        & git add -A *>$null
+        if ($LASTEXITCODE -ne 0) { throw "could not stage the build context from the working tree." }
+        $Prefix = ($ContextDir -replace '\', '/') + '/'
+        & git checkout-index -a "--prefix=$Prefix"
+        if ($LASTEXITCODE -ne 0) { throw "could not write the staged build context." }
+        $StagedTree = (& git write-tree)
+        if ($LASTEXITCODE -ne 0) { throw "could not read the staged tree." }
+    } finally {
+        Remove-Item Env:GIT_INDEX_FILE -ErrorAction Ignore
+    }
+    $Dirty = (& git status --porcelain)
+    $HeadTree = (& git rev-parse 'HEAD^{tree}' 2>$null)
+    if (-not $Dirty -and $StagedTree -ne $HeadTree) {
+        throw "the working tree is clean but the staged build context is not HEAD's tree. Refusing to run: what would be tested is not the commit being recorded."
+    }
+    $env:CI_BUILD_CONTEXT = $ContextDir
 
     New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot 'artifacts/local-ci') | Out-Null
     # Delete the previous run's result BEFORE this one starts. If the build fails, or the container
@@ -145,6 +183,7 @@ if ($Status -ne 0 -and $KeepOnFailure) {
     Write-Host "    clean up when finished:" -ForegroundColor Yellow
     Write-Host "      docker rm -f $Container; docker rmi betting-standards-ci:$($env:CI_IMAGE_TAG)"
     Write-Host "      docker compose -p $Project -f compose.ci.yml down -v --remove-orphans"
+    Remove-BuildContext
 } else {
     Invoke-Cleanup
 }
