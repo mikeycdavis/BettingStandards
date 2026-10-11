@@ -104,7 +104,7 @@ try {
     try {
         & git add -A *>$null
         if ($LASTEXITCODE -ne 0) { throw "could not stage the build context from the working tree." }
-        $Prefix = ($ContextDir -replace '\', '/') + '/'
+        $Prefix = $ContextDir.Replace('\', '/') + '/'
         & git checkout-index -a "--prefix=$Prefix"
         if ($LASTEXITCODE -ne 0) { throw "could not write the staged build context." }
         $StagedTree = (& git write-tree)
