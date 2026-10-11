@@ -318,6 +318,32 @@ function makeExternalTarget(version, { exceptRule } = {}) {
 }
 
 /**
+ * FAIL-CLOSED: the lines of a source-scanned module on which the word `export` appears AT ALL, other
+ * than lines the caller has allowlisted by their exact trimmed text.
+ *
+ * This is the gate for the two modules that cannot be imported (`ci-stages.mjs`, `fidelity.mjs`) and
+ * are known to export nothing. It deliberately does not try to understand the syntax: a scanner that
+ * must decide what is a comment, a string or a regular-expression literal can be talked out of an
+ * export by a quote inside a regex (`const r = /"/; export{x};`). Here the raw text is read, comments
+ * and strings included, so ANY appearance of the whole word fails and a human has to classify it by
+ * adding the exact line to the allowlist. A false positive costs one line in a table; a false
+ * negative classifies an export unseen.
+ */
+function exportWordLines(source, allowedLines = []) {
+  const hits = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    if (/\bexport\b/.test(line) && !allowedLines.includes(line.trim())) hits.push(`line ${index + 1}: ${line.trim()}`);
+  });
+  return hits;
+}
+
+/** Exact trimmed lines on which the word may appear in a source-scanned module. Empty: it appears nowhere. */
+const SOURCE_SCANNED_EXPORT_ALLOWLIST = {
+  "fidelity.mjs": [],
+  "ci-stages.mjs": [],
+};
+
+/**
  * Every `export` keyword in a module's SOURCE, for the two scripts that cannot be imported
  * (`ci-stages.mjs` runs the pipeline on import; `fidelity.mjs` checks and then calls process.exit).
  *
@@ -440,8 +466,36 @@ test("exportKeywords finds every valid export spelling and ignores prose, string
   }
   // The scripts that are held to "no exports" by source really do have none.
   for (const file of ["fidelity.mjs", "ci-stages.mjs"]) {
-    assert.deepEqual(exportKeywords(readFileSync(path.join(SCRIPTS, file), "utf8")), [], `${file} has an export`);
+    const source = readFileSync(path.join(SCRIPTS, file), "utf8");
+    assert.deepEqual(exportKeywords(source), [], `${file} has an export`);
+    assert.deepEqual(exportWordLines(source, SOURCE_SCANNED_EXPORT_ALLOWLIST[file]), [], `${file} contains the word export`);
   }
+});
+
+test("the fail-closed gate flags the word anywhere, including after a regular-expression literal", () => {
+  // Each of these hides an export from a scanner that tracks strings, because a quote inside a regex
+  // literal opens a "string" that swallows the rest of the line. The gate reads raw text and so
+  // cannot be hidden from.
+  const hidden = [
+    'const x=1, r=/"/; export{x};',
+    "const r=/'/;export{x}",
+    "const r=/`/;export{x}",
+    "export{newlyExported};",
+    "export/* c */{newlyExported};",
+    "export*from'./yaml.mjs';",
+    "const s = 'export';",
+    "// export",
+    "const exported = 1; /* the export */",
+  ];
+  for (const line of hidden) {
+    assert.equal(exportWordLines(line).length, 1, `the gate missed: ${JSON.stringify(line)}`);
+  }
+  assert.deepEqual(exportWordLines("const exports2 = exportsOf(file);"), [], "a longer identifier is not the word");
+  // An occurrence is admitted only by its exact line, so a human has classified it.
+  assert.deepEqual(exportWordLines("// export is discussed here", ["// export is discussed here"]), []);
+  assert.equal(exportWordLines("// export is discussed here; export{x};", ["// export is discussed here"]).length, 1);
+  assert.deepEqual(SOURCE_SCANNED_EXPORT_ALLOWLIST["fidelity.mjs"], []);
+  assert.deepEqual(SOURCE_SCANNED_EXPORT_ALLOWLIST["ci-stages.mjs"], []);
 });
 
 test("every export of every script is classified, and every classification names a real export", async () => {
@@ -472,7 +526,7 @@ test("every export of every script is classified, and every classification names
       if (entry.noImport || entry.runsOnImport) {
         assert.deepEqual(entry.exports, [], `${file} runs on import, so it can only be classified with no exports`);
         const source = readFileSync(path.join(SCRIPTS, file), "utf8");
-        exported = exportKeywords(source).map((at) => `(an export keyword at offset ${at})`);
+        exported = exportWordLines(source, SOURCE_SCANNED_EXPORT_ALLOWLIST[file] ?? []).map((hit) => `(the word export, ${hit})`);
       } else {
         exported = await exportsOf(file);
       }
@@ -593,7 +647,7 @@ test("ci-stages.mjs is inert by construction: it exports nothing and can be hand
   const source = readFileSync(path.join(SCRIPTS, "ci-stages.mjs"), "utf8");
 
   assert.deepEqual(
-    exportKeywords(source),
+    exportWordLines(source, SOURCE_SCANNED_EXPORT_ALLOWLIST["ci-stages.mjs"]),
     [],
     "an export would make it programmatically reachable, and this census cannot import it to check",
   );
