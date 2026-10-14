@@ -1903,6 +1903,174 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
  * at, which is what a recorded reason is for.
  * ------------------------------------------------------------------------------------------ */
 
+/**
+ * Every place in `sources` (name -> text) that textually mentions `loadBettingPolicy`, or names the
+ * module that defines it (a quoted path ending `policy.mjs`: an import, re-export, dynamic import or
+ * require of it, with or without a name). Returned as `file: trimmed line`.
+ *
+ * This is deliberately a plain text search with no parsing and no notion of code versus comment. A
+ * mention in a comment or a string is reported too; a human dispositions it by adding an entry to the
+ * allow-list below, which is a visible, reviewed change. Failing closed on text means there is no
+ * tokenizer to be fooled by a regex literal, a template, a member access or an unusual import form.
+ * What it cannot see: a name or path assembled at run time (`"./pol" + "icy.mjs"`, `mod[key]`).
+ */
+function policyLoaderMentions(sources) {
+  // Escapes are resolved first, so policy.mjs or loadBettingPolicy match like the plain text.
+  const unescape = (t) =>
+    t
+      .replace(/\\u\{([0-9a-fA-F]+)\}/g, (m, h) => (parseInt(h, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(h, 16)) : m))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+  const mentions = [];
+  for (const [file, text] of Object.entries(sources)) {
+    for (const raw of text.split(/\r?\n/)) {
+      const line = unescape(raw);
+      const named = /loadBettingPolicy/.test(line) || /["'`][^"'`\n]*policy\.mjs[^"'`\n]*["'`]/.test(line);
+      // Any escape sequence is itself reported: it can hide a spelling this scan does not resolve, so a
+      // human dispositions it like any other mention.
+      const escaped = /\\(?:u\{|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})/.test(raw);
+      // A production file quoting a path inside the root test/ directory could reach a shared helper that
+      // calls the primitive from where the scan does not look; any such quote is reported.
+      const intoTests = /["'`](?:[^"'`\n]*[/\\])?test[/\\][^"'`\n]*["'`]/.test(line);
+      if (named || escaped || intoTests) mentions.push(`${file}: ${raw.trim()}`);
+    }
+  }
+  return mentions;
+}
+
+/**
+ * Every JavaScript source under `root`, recursively, as `relative/posix/path -> text`. Skips only what is
+ * not shipped source: `node_modules` at any depth, and, only at the root, `.git`, `.pnpm-store`,
+ * `artifacts/local-ci` (generated CI output) and `test/` (tests may call the primitive directly; a nested
+ * `scripts/test/` is shipped source and is scanned). Only JavaScript is read: an import cannot live in
+ * JSON, YAML or a shell script, which at most invoke the CLI. A directory or file that cannot be read
+ * throws, so the scan fails closed rather than quietly covering less.
+ */
+const SOURCE_FILE = /\.(?:mjs|cjs|js|mts|cts|ts)$/i;
+// Only these paths from the root are skipped (so scripts/test/ is scanned); node_modules is skipped at any depth.
+const SKIPPED_DIRS = new Set([".git", ".pnpm-store", "test", "artifacts/local-ci"]);
+function codeSources(root, rel = "") {
+  const out = {};
+  for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) {
+      if (!SKIPPED_DIRS.has(r) && e.name !== "node_modules") Object.assign(out, codeSources(root, r));
+    } else if (SOURCE_FILE.test(e.name)) {
+      out[r] = readFileSync(path.join(root, r), "utf8");
+    }
+  }
+  return out;
+}
+
+/**
+ * Mentions beyond what `allowed` permits, and permitted mentions that are missing. `allowed` maps
+ * `file: trimmed line` to how many times that exact line may occur, so a second copy of an allowed line
+ * is as visible as a new one. Lists are `file: line`, one element per surplus or missing occurrence.
+ */
+function policyLoaderDrift(sources, allowed) {
+  const counts = new Map();
+  for (const m of policyLoaderMentions(sources)) counts.set(m, (counts.get(m) ?? 0) + 1);
+  const unexpected = [];
+  const stale = [];
+  for (const [m, n] of counts) for (let k = allowed[m] ?? 0; k < n; k += 1) unexpected.push(m);
+  for (const [m, want] of Object.entries(allowed)) for (let k = counts.get(m) ?? 0; k < want; k += 1) stale.push(m);
+  return { unexpected, stale };
+}
+
+// The complete, reviewed set of mentions in scripts/. A new line here is a new way to reach the loader.
+// Each line maps to the exact number of times it may occur in that file.
+const LOAD_BETTING_POLICY_ALLOWED = {
+  "scripts/policy.mjs: export async function loadBettingPolicy(policyPath = BETTING_POLICY, schemaPath = BETTING_SCHEMA) {": 1,
+  'scripts/decisions.mjs: import { loadBettingPolicy } from "./policy.mjs";': 1,
+  "scripts/decisions.mjs: // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own": 1,
+  "scripts/decisions.mjs: const policy = await loadBettingPolicy(policyPath);": 1,
+  // A comment that names this test file in backticks; it imports nothing from test/.
+  "scripts/framework-version.mjs: * is derived in `test/evidence-surface-census.test.mjs`, which fails when it meets a surface nobody": 1,
+};
+
+test("the source walk reaches nested modules and skips only test/, VCS, dependency and generated directories", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "census-walk-"));
+  try {
+    for (const [file, text] of Object.entries({
+      "scripts/policy.mjs": "a",
+      "scripts/lib/deep/helper.mjs": "import { loadBettingPolicy } from \"../../policy.mjs\";",
+      "src/x.js": "b",
+      "test/t.test.mjs": "skipped",
+      "node_modules/m/i.js": "skipped",
+      "scripts/node_modules/m/i.js": "skipped",
+      "scripts/test/helper.mjs": "import { loadBettingPolicy } from \"../policy.mjs\";",
+      "scripts/.git/x.js": "shipped: only the root .git is VCS",
+      "artifacts/local-ci/out.js": "skipped",
+      "scripts/readme.md": "skipped",
+    })) {
+      mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      writeFileSync(path.join(dir, file), text);
+    }
+    const found = codeSources(dir);
+    assert.deepEqual(Object.keys(found).sort(), [
+      "scripts/.git/x.js",
+      "scripts/lib/deep/helper.mjs",
+      "scripts/policy.mjs",
+      "scripts/test/helper.mjs",
+      "src/x.js",
+    ]);
+    // The nested helper reaches the primitive and is reported, with its full path.
+    assert.deepEqual(policyLoaderDrift(found, {}).unexpected, [
+      "scripts/lib/deep/helper.mjs: import { loadBettingPolicy } from \"../../policy.mjs\";",
+      "scripts/test/helper.mjs: import { loadBettingPolicy } from \"../policy.mjs\";",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.throws(() => codeSources(path.join(os.tmpdir(), "census-walk-does-not-exist")), "an unreadable root must throw, not scan nothing");
+});
+
+test("the loadBettingPolicy mention scan fails closed on any occurrence outside its allow-list", () => {
+  const decl = "export async function loadBettingPolicy(p) {";
+  const allowed = { [`policy.mjs: ${decl}`]: 1 };
+  const drift = (sources, list = allowed) => policyLoaderDrift(sources, list);
+  const call = "const policy = await loadBettingPolicy(policyPath);";
+  assert.deepEqual(drift({ "policy.mjs": decl + "\n  return p;\n}\n" }), { unexpected: [], stale: [] });
+  // Every way of reaching it, and every harmless spelling, is reported until a human allow-lists it.
+  const reported = {
+    "helper call": "async function helper(p) { return loadBettingPolicy(p); }",
+    "member call": "policy.loadBettingPolicy(p);",
+    "alias": "const load = loadBettingPolicy;",
+    "call after a keyword and a regex-looking slash": "return /x/; loadBettingPolicy(p);",
+    "inline comment": "const a = 1; // loadBettingPolicy(p)",
+    "string": 'const s = "loadBettingPolicy";',
+    "namespace import": 'import * as ns from "./policy.mjs";',
+    "export star": "export * from './policy.mjs';",
+    "dynamic import": 'const m = await import("./policy.mjs");',
+    "method named import": 'client.import("./policy.mjs");',
+    "template path": "await import(`./policy.mjs`);",
+    "unicode-escaped specifier": String.raw`const m = await import("./policy.mjs");`,
+    "braced unicode escape": String.raw`const m = await import("./\u{70}olicy.mjs");`,
+    "unicode-escaped identifier": String.raw`loadBettingPolicy(p);`,
+    "hex-escaped specifier": String.raw`import("./polic\x79.mjs");`,
+    "unknown escape (fail closed)": String.raw`const x = "\u{1F600}";`,
+    "import from root test/": 'import { h } from "../test/policy-helper.mjs";',
+    "bare test/ path": "const h = await import('test/helper.mjs');",
+  };
+  for (const [label, line] of Object.entries(reported)) {
+    const { unexpected } = drift({ "policy.mjs": decl + "\n", "other.mjs": line + "\n" });
+    assert.deepEqual(unexpected, [`other.mjs: ${line}`], `${label} was not reported`);
+  }
+  // Unrelated text is not: a path segment merely ending in "test", a word, a newline escape.
+  assert.deepEqual(
+    drift({ "policy.mjs": decl + "\n", "y.mjs": String.raw`const a = "./attest/x.mjs"; const b = "testing"; const c = "a\nb";` + "\n" }).unexpected,
+    [],
+  );
+  assert.deepEqual(drift({ "policy.mjs": decl + "\n", "x.mjs": 'import * as o from "./standards.mjs";\nconst policy = 1;\n' }).unexpected, []);
+  // An allow-list entry that matches nothing is itself a failure.
+  assert.deepEqual(drift({ "policy.mjs": "const x = 1;\n" }).stale, [`policy.mjs: ${decl}`]);
+  // The count is exact: a second copy of an allowed line is surplus, and a missing copy is stale.
+  const once = { [`d.mjs: ${call}`]: 1 };
+  assert.deepEqual(drift({ "d.mjs": call + "\n" }, once), { unexpected: [], stale: [] });
+  assert.deepEqual(drift({ "d.mjs": call + "\n  " + call + "\n" }, once), { unexpected: [`d.mjs: ${call}`], stale: [] });
+  assert.deepEqual(drift({ "d.mjs": call + "\n" }, { [`d.mjs: ${call}`]: 2 }), { unexpected: [], stale: [`d.mjs: ${call}`] });
+});
+
 test("loadBettingPolicy is a primitive, reached in production only through a guarded checkDecisions", () => {
   const read = (file) => readFileSync(path.join(SCRIPTS, file), "utf8");
   const code = (text) => text.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
@@ -1917,11 +2085,15 @@ test("loadBettingPolicy is a primitive, reached in production only through a gua
   assert.ok(body.length > 0, "could not locate loadBettingPolicy");
   assert.doesNotMatch(body, /declaredVersionRefusal|WrongFramework/, "loadBettingPolicy gained an authority guard; the recorded disposition is none");
 
-  // Callers in production code: exactly decisions.mjs, and never checkPolicy.
-  const callers = readdirSync(SCRIPTS)
-    .filter((f) => f.endsWith(".mjs") && f !== "policy.mjs")
-    .filter((f) => /\bloadBettingPolicy\s*\(/.test(code(read(f))));
-  assert.deepEqual(callers, ["decisions.mjs"], "a new production caller of loadBettingPolicy appeared; classify what it reaches");
+  // Every mention of it, or of the module that defines it, anywhere in scripts/ (policy.mjs included) is
+  // in the reviewed allow-list: the declaration and decisions.mjs. A new mention fails until a human
+  // looks at it and adds a line, which is the point.
+  const drift = policyLoaderDrift(
+    codeSources(ROOT),
+    LOAD_BETTING_POLICY_ALLOWED,
+  );
+  assert.deepEqual(drift.unexpected, [], "a new mention of loadBettingPolicy or of policy.mjs appeared; classify what it reaches, then allow-list it");
+  assert.deepEqual(drift.stale, [], "an allow-listed mention of loadBettingPolicy no longer exists; remove it from the list");
   const checkPolicySource = policy.slice(policy.indexOf("export async function checkPolicy"));
   assert.doesNotMatch(
     checkPolicySource.slice(0, checkPolicySource.indexOf("\n}\n")),
