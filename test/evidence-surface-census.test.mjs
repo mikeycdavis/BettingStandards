@@ -1927,6 +1927,28 @@ function policyLoaderMentions(sources) {
 }
 
 /**
+ * Every JavaScript source under `root`, recursively, as `relative/posix/path -> text`. Skips only what is
+ * not shipped source: `.git`, `node_modules`, `.pnpm-store`, `artifacts/local-ci` (generated CI output)
+ * and `test/` (tests may call the primitive directly). Only JavaScript is read: an import cannot live in
+ * JSON, YAML or a shell script, which at most invoke the CLI. A directory or file that cannot be read
+ * throws, so the scan fails closed rather than quietly covering less.
+ */
+const SOURCE_FILE = /\.(?:mjs|cjs|js|mts|cts|ts)$/i;
+const SKIPPED_DIRS = new Set([".git", "node_modules", ".pnpm-store", "test", "artifacts/local-ci"]); // a name anywhere, or a path from the root
+function codeSources(root, rel = "") {
+  const out = {};
+  for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) {
+      if (!SKIPPED_DIRS.has(r) && !SKIPPED_DIRS.has(e.name)) Object.assign(out, codeSources(root, r));
+    } else if (SOURCE_FILE.test(e.name)) {
+      out[r] = readFileSync(path.join(root, r), "utf8");
+    }
+  }
+  return out;
+}
+
+/**
  * Mentions beyond what `allowed` permits, and permitted mentions that are missing. `allowed` maps
  * `file: trimmed line` to how many times that exact line may occur, so a second copy of an allowed line
  * is as visible as a new one. Lists are `file: line`, one element per surplus or missing occurrence.
@@ -1944,11 +1966,39 @@ function policyLoaderDrift(sources, allowed) {
 // The complete, reviewed set of mentions in scripts/. A new line here is a new way to reach the loader.
 // Each line maps to the exact number of times it may occur in that file.
 const LOAD_BETTING_POLICY_ALLOWED = {
-  "policy.mjs: export async function loadBettingPolicy(policyPath = BETTING_POLICY, schemaPath = BETTING_SCHEMA) {": 1,
-  'decisions.mjs: import { loadBettingPolicy } from "./policy.mjs";': 1,
-  "decisions.mjs: // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own": 1,
-  "decisions.mjs: const policy = await loadBettingPolicy(policyPath);": 1,
+  "scripts/policy.mjs: export async function loadBettingPolicy(policyPath = BETTING_POLICY, schemaPath = BETTING_SCHEMA) {": 1,
+  'scripts/decisions.mjs: import { loadBettingPolicy } from "./policy.mjs";': 1,
+  "scripts/decisions.mjs: // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own": 1,
+  "scripts/decisions.mjs: const policy = await loadBettingPolicy(policyPath);": 1,
 };
+
+test("the source walk reaches nested modules and skips only test/, VCS, dependency and generated directories", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "census-walk-"));
+  try {
+    for (const [file, text] of Object.entries({
+      "scripts/policy.mjs": "a",
+      "scripts/lib/deep/helper.mjs": "import { loadBettingPolicy } from \"../../policy.mjs\";",
+      "src/x.js": "b",
+      "test/t.test.mjs": "skipped",
+      "node_modules/m/i.js": "skipped",
+      "scripts/node_modules/m/i.js": "skipped",
+      "artifacts/local-ci/out.js": "skipped",
+      "scripts/readme.md": "skipped",
+    })) {
+      mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      writeFileSync(path.join(dir, file), text);
+    }
+    const found = codeSources(dir);
+    assert.deepEqual(Object.keys(found).sort(), ["scripts/lib/deep/helper.mjs", "scripts/policy.mjs", "src/x.js"]);
+    // The nested helper reaches the primitive and is reported, with its full path.
+    assert.deepEqual(policyLoaderDrift(found, {}).unexpected, [
+      "scripts/lib/deep/helper.mjs: import { loadBettingPolicy } from \"../../policy.mjs\";",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.throws(() => codeSources(path.join(os.tmpdir(), "census-walk-does-not-exist")), "an unreadable root must throw, not scan nothing");
+});
 
 test("the loadBettingPolicy mention scan fails closed on any occurrence outside its allow-list", () => {
   const decl = "export async function loadBettingPolicy(p) {";
@@ -2003,11 +2053,7 @@ test("loadBettingPolicy is a primitive, reached in production only through a gua
   // in the reviewed allow-list: the declaration and decisions.mjs. A new mention fails until a human
   // looks at it and adds a line, which is the point.
   const drift = policyLoaderDrift(
-    Object.fromEntries(
-      readdirSync(SCRIPTS, { withFileTypes: true })
-        .filter((e) => e.isFile())
-        .map((e) => [e.name, read(e.name)]),
-    ),
+    codeSources(ROOT),
     LOAD_BETTING_POLICY_ALLOWED,
   );
   assert.deepEqual(drift.unexpected, [], "a new mention of loadBettingPolicy or of policy.mjs appeared; classify what it reaches, then allow-list it");
