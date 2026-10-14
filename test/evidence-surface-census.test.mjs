@@ -1904,31 +1904,141 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
  * ------------------------------------------------------------------------------------------ */
 
 /**
- * Files (of a name -> source map) that call `loadBettingPolicy`. Comment lines are ignored. Every file is
- * scanned, policy.mjs included; only the `function loadBettingPolicy(` declaration itself is removed, so a
+ * The code of a JavaScript module with comments and the contents of string, template and regular
+ * expression literals blanked out. `${ ... }` expressions inside a template are kept: they are code.
+ * A small tokenizer, not a parser: a `/` starts a regular expression when the previous significant
+ * character cannot end an operand, which is right for every construct a scan like this meets.
+ */
+function codeOnly(text) {
+  let out = "";
+  const braces = []; // brace depth at which each open `${` resumes the template
+  let depth = 0;
+  let prev = ""; // last significant output character
+  const n = text.length;
+  const skipTemplate = (i) => {
+    // At i, just past an opening backtick or a closing `}` of a `${}`. Returns the index after the
+    // template text: past the closing backtick, or past the next `${` (pushed on `braces`).
+    while (i < n) {
+      const c = text[i];
+      if (c === "\\") i += 2;
+      else if (c === "`") return i + 1;
+      else if (c === "$" && text[i + 1] === "{") {
+        braces.push(depth);
+        depth += 1;
+        prev = "{";
+        out += "{";
+        return i + 2;
+      } else i += 1;
+    }
+    return i;
+  };
+  for (let i = 0; i < n; ) {
+    const c = text[i];
+    const d = text[i + 1];
+    if (c === "/" && d === "/") {
+      while (i < n && text[i] !== "\n") i += 1;
+    } else if (c === "/" && d === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end === -1 ? n : end + 2;
+      out += " ";
+    } else if (c === '"' || c === "'") {
+      i += 1;
+      while (i < n && text[i] !== c && text[i] !== "\n") i += text[i] === "\\" ? 2 : 1;
+      i += 1;
+      out += '""';
+      prev = '"';
+    } else if (c === "`") {
+      i = skipTemplate(i + 1);
+      out += "``";
+      prev = "`";
+    } else if (c === "/" && (prev === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev) || /(^|[^\w$])(return|typeof|case|in|of|delete|void|throw|new|yield|await)$/.test(out.slice(-12)))) {
+      i += 1;
+      let inClass = false;
+      while (i < n && text[i] !== "\n" && (inClass || text[i] !== "/")) {
+        if (text[i] === "\\") i += 1;
+        else if (text[i] === "[") inClass = true;
+        else if (text[i] === "]") inClass = false;
+        i += 1;
+      }
+      i += 1;
+      while (i < n && /[a-z]/i.test(text[i])) i += 1;
+      out += "//";
+      prev = "/";
+    } else {
+      if (c === "{") depth += 1;
+      if (c === "}") {
+        depth -= 1;
+        if (braces.length && braces[braces.length - 1] === depth) {
+          braces.pop();
+          out += "}";
+          i = skipTemplate(i + 1);
+          out += "``";
+          prev = "`";
+          continue;
+        }
+      }
+      out += c;
+      if (!/\s/.test(c)) prev = c;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Files (of a name -> source map) that use `loadBettingPolicy`: any occurrence of the identifier in code
+ * other than its own `function loadBettingPolicy` declaration. That covers a call, `.call`/`.apply`/
+ * `.bind`, an alias assignment, passing it as an argument and an import of it. Comments and string,
+ * template and regex literal contents are not code. Every file is scanned, policy.mjs included, so a
  * helper in the defining module that calls it is a caller like any other.
+ *
+ * Out of scope: a computed property access through a string (`mod["loadBettingPolicy"]`) and a dynamic
+ * `import()` followed by a string-keyed lookup; both need the name as string data, which is not read.
  */
 function loadBettingPolicyCallers(sources) {
-  const code = (text) => text.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
   return Object.keys(sources)
     .filter((f) => f.endsWith(".mjs"))
-    .filter((f) => /\bloadBettingPolicy\s*\(/.test(code(sources[f]).replace(/\bfunction\s+loadBettingPolicy\s*\(/g, "function (")));
+    .filter((f) => /(^|[^\w$.])loadBettingPolicy(?![\w$])/.test(codeOnly(sources[f]).replace(/\bfunction\s+loadBettingPolicy(?![\w$])/g, "function (")));
 }
 
 test("the loadBettingPolicy caller scan sees a helper inside policy.mjs, and ignores only the declaration", () => {
   const declaration = "export async function loadBettingPolicy(policyPath) {\n  return parse(policyPath);\n}\n";
-  assert.deepEqual(loadBettingPolicyCallers({ "policy.mjs": declaration }), [], "the declaration alone is not a caller");
-  assert.deepEqual(
-    loadBettingPolicyCallers({ "policy.mjs": declaration + "async function helper(p) {\n  return loadBettingPolicy(p);\n}\n" }),
-    ["policy.mjs"],
-    "a helper in policy.mjs that calls loadBettingPolicy was not caught",
-  );
-  assert.deepEqual(
-    loadBettingPolicyCallers({ "policy.mjs": declaration + "// loadBettingPolicy(p) is described here\n" }),
-    [],
-    "a comment is not a caller",
-  );
-  assert.deepEqual(loadBettingPolicyCallers({ "other.mjs": "await loadBettingPolicy(p);\n" }), ["other.mjs"]);
+  const callers = (src, name = "policy.mjs") => loadBettingPolicyCallers({ [name]: src });
+  assert.deepEqual(callers(declaration), [], "the declaration alone is not a caller");
+  assert.deepEqual(callers(declaration + "async function helper(p) {\n  return loadBettingPolicy(p);\n}\n"), ["policy.mjs"], "a helper in policy.mjs that calls loadBettingPolicy was not caught");
+  assert.deepEqual(callers("await loadBettingPolicy(p);\n", "other.mjs"), ["other.mjs"]);
+});
+
+test("the loadBettingPolicy caller scan reads code only: comments and literals that spell the name are not callers", () => {
+  const d = "export async function loadBettingPolicy(p) {\n  return p;\n}\n";
+  const clean = {
+    "line comment": "// loadBettingPolicy(p) is described here\n",
+    "inline comment": "const parsed = value; // loadBettingPolicy(p)\n",
+    "block comment": "/* loadBettingPolicy(p)\n   loadBettingPolicy(q) */ const a = 1;\n",
+    "double-quoted string": 'const s = "loadBettingPolicy(p)";\n',
+    "single-quoted string with escape": "const s = 'it\\'s loadBettingPolicy(p)';\n",
+    "template literal": "const s = `calls loadBettingPolicy(p) ${1 + 1} loadBettingPolicy(q)`;\n",
+    "string containing comment marker": 'const s = "// x"; const t = "loadBettingPolicy(p)";\n',
+    "regex literal": "const r = /loadBettingPolicy\(/g;\n",
+  };
+  for (const [label, src] of Object.entries(clean)) {
+    assert.deepEqual(loadBettingPolicyCallers({ "policy.mjs": d + src }), [], `${label} was reported as a caller`);
+  }
+  const called = {
+    "plain call": "async function h(p) { return loadBettingPolicy(p); }\n",
+    "call after a string": 'const s = "x"; loadBettingPolicy(p);\n',
+    "call in a template expression": "const s = `${await loadBettingPolicy(p)}`;\n",
+    "call after a division": "const n = a / b; loadBettingPolicy(p);\n",
+    ".call": "loadBettingPolicy.call(null, p);\n",
+    ".apply": "loadBettingPolicy.apply(null, [p]);\n",
+    ".bind": "const f = loadBettingPolicy.bind(null);\n",
+    "alias assignment": "const load = loadBettingPolicy;\n",
+    "passed as an argument": "run(loadBettingPolicy);\n",
+    "destructured import": 'import { loadBettingPolicy as lbp } from "./policy.mjs";\n',
+  };
+  for (const [label, src] of Object.entries(called)) {
+    assert.deepEqual(loadBettingPolicyCallers({ "policy.mjs": d + src }), ["policy.mjs"], `${label} was not caught`);
+  }
 });
 
 test("loadBettingPolicy is a primitive, reached in production only through a guarded checkDecisions", () => {
