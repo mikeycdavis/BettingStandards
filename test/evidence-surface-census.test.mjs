@@ -1915,12 +1915,24 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
  * What it cannot see: a name or path assembled at run time (`"./pol" + "icy.mjs"`, `mod[key]`).
  */
 function policyLoaderMentions(sources) {
+  // Escapes are resolved first, so policy.mjs or loadBettingPolicy match like the plain text.
+  const unescape = (t) =>
+    t
+      .replace(/\\u\{([0-9a-fA-F]+)\}/g, (m, h) => (parseInt(h, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(h, 16)) : m))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
   const mentions = [];
   for (const [file, text] of Object.entries(sources)) {
-    for (const line of text.split(/\r?\n/)) {
-      if (/loadBettingPolicy/.test(line) || /["'`][^"'`\n]*policy\.mjs[^"'`\n]*["'`]/.test(line)) {
-        mentions.push(`${file}: ${line.trim()}`);
-      }
+    for (const raw of text.split(/\r?\n/)) {
+      const line = unescape(raw);
+      const named = /loadBettingPolicy/.test(line) || /["'`][^"'`\n]*policy\.mjs[^"'`\n]*["'`]/.test(line);
+      // Any escape sequence is itself reported: it can hide a spelling this scan does not resolve, so a
+      // human dispositions it like any other mention.
+      const escaped = /\\(?:u\{|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})/.test(raw);
+      // A production file quoting a path inside the root test/ directory could reach a shared helper that
+      // calls the primitive from where the scan does not look; any such quote is reported.
+      const intoTests = /["'`](?:[^"'`\n]*[/\\])?test[/\\][^"'`\n]*["'`]/.test(line);
+      if (named || escaped || intoTests) mentions.push(`${file}: ${raw.trim()}`);
     }
   }
   return mentions;
@@ -1972,6 +1984,8 @@ const LOAD_BETTING_POLICY_ALLOWED = {
   'scripts/decisions.mjs: import { loadBettingPolicy } from "./policy.mjs";': 1,
   "scripts/decisions.mjs: // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own": 1,
   "scripts/decisions.mjs: const policy = await loadBettingPolicy(policyPath);": 1,
+  // A comment that names this test file in backticks; it imports nothing from test/.
+  "scripts/framework-version.mjs: * is derived in `test/evidence-surface-census.test.mjs`, which fails when it meets a surface nobody": 1,
 };
 
 test("the source walk reaches nested modules and skips only test/, VCS, dependency and generated directories", () => {
@@ -2030,12 +2044,23 @@ test("the loadBettingPolicy mention scan fails closed on any occurrence outside 
     "dynamic import": 'const m = await import("./policy.mjs");',
     "method named import": 'client.import("./policy.mjs");',
     "template path": "await import(`./policy.mjs`);",
+    "unicode-escaped specifier": String.raw`const m = await import("./policy.mjs");`,
+    "braced unicode escape": String.raw`const m = await import("./\u{70}olicy.mjs");`,
+    "unicode-escaped identifier": String.raw`loadBettingPolicy(p);`,
+    "hex-escaped specifier": String.raw`import("./polic\x79.mjs");`,
+    "unknown escape (fail closed)": String.raw`const x = "\u{1F600}";`,
+    "import from root test/": 'import { h } from "../test/policy-helper.mjs";',
+    "bare test/ path": "const h = await import('test/helper.mjs');",
   };
   for (const [label, line] of Object.entries(reported)) {
     const { unexpected } = drift({ "policy.mjs": decl + "\n", "other.mjs": line + "\n" });
     assert.deepEqual(unexpected, [`other.mjs: ${line}`], `${label} was not reported`);
   }
-  // Unrelated text is not.
+  // Unrelated text is not: a path segment merely ending in "test", a word, a newline escape.
+  assert.deepEqual(
+    drift({ "policy.mjs": decl + "\n", "y.mjs": String.raw`const a = "./attest/x.mjs"; const b = "testing"; const c = "a\nb";` + "\n" }).unexpected,
+    [],
+  );
   assert.deepEqual(drift({ "policy.mjs": decl + "\n", "x.mjs": 'import * as o from "./standards.mjs";\nconst policy = 1;\n' }).unexpected, []);
   // An allow-list entry that matches nothing is itself a failure.
   assert.deepEqual(drift({ "policy.mjs": "const x = 1;\n" }).stale, [`policy.mjs: ${decl}`]);
