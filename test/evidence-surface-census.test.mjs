@@ -1903,6 +1903,34 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
  * at, which is what a recorded reason is for.
  * ------------------------------------------------------------------------------------------ */
 
+/**
+ * Files (of a name -> source map) that call `loadBettingPolicy`. Comment lines are ignored. Every file is
+ * scanned, policy.mjs included; only the `function loadBettingPolicy(` declaration itself is removed, so a
+ * helper in the defining module that calls it is a caller like any other.
+ */
+function loadBettingPolicyCallers(sources) {
+  const code = (text) => text.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
+  return Object.keys(sources)
+    .filter((f) => f.endsWith(".mjs"))
+    .filter((f) => /\bloadBettingPolicy\s*\(/.test(code(sources[f]).replace(/\bfunction\s+loadBettingPolicy\s*\(/g, "function (")));
+}
+
+test("the loadBettingPolicy caller scan sees a helper inside policy.mjs, and ignores only the declaration", () => {
+  const declaration = "export async function loadBettingPolicy(policyPath) {\n  return parse(policyPath);\n}\n";
+  assert.deepEqual(loadBettingPolicyCallers({ "policy.mjs": declaration }), [], "the declaration alone is not a caller");
+  assert.deepEqual(
+    loadBettingPolicyCallers({ "policy.mjs": declaration + "async function helper(p) {\n  return loadBettingPolicy(p);\n}\n" }),
+    ["policy.mjs"],
+    "a helper in policy.mjs that calls loadBettingPolicy was not caught",
+  );
+  assert.deepEqual(
+    loadBettingPolicyCallers({ "policy.mjs": declaration + "// loadBettingPolicy(p) is described here\n" }),
+    [],
+    "a comment is not a caller",
+  );
+  assert.deepEqual(loadBettingPolicyCallers({ "other.mjs": "await loadBettingPolicy(p);\n" }), ["other.mjs"]);
+});
+
 test("loadBettingPolicy is a primitive, reached in production only through a guarded checkDecisions", () => {
   const read = (file) => readFileSync(path.join(SCRIPTS, file), "utf8");
   const code = (text) => text.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
@@ -1918,9 +1946,9 @@ test("loadBettingPolicy is a primitive, reached in production only through a gua
   assert.doesNotMatch(body, /declaredVersionRefusal|WrongFramework/, "loadBettingPolicy gained an authority guard; the recorded disposition is none");
 
   // Callers in production code: exactly decisions.mjs, and never checkPolicy.
-  const callers = readdirSync(SCRIPTS)
-    .filter((f) => f.endsWith(".mjs") && f !== "policy.mjs")
-    .filter((f) => /\bloadBettingPolicy\s*\(/.test(code(read(f))));
+  const callers = loadBettingPolicyCallers(
+    Object.fromEntries(readdirSync(SCRIPTS).filter((f) => f.endsWith(".mjs")).map((f) => [f, read(f)])),
+  );
   assert.deepEqual(callers, ["decisions.mjs"], "a new production caller of loadBettingPolicy appeared; classify what it reaches");
   const checkPolicySource = policy.slice(policy.indexOf("export async function checkPolicy"));
   assert.doesNotMatch(
