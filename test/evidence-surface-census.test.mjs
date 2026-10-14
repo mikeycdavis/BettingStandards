@@ -1928,19 +1928,21 @@ function policyLoaderMentions(sources) {
 
 /**
  * Every JavaScript source under `root`, recursively, as `relative/posix/path -> text`. Skips only what is
- * not shipped source: `.git`, `node_modules`, `.pnpm-store`, `artifacts/local-ci` (generated CI output)
- * and `test/` (tests may call the primitive directly). Only JavaScript is read: an import cannot live in
+ * not shipped source: `node_modules` at any depth, and, only at the root, `.git`, `.pnpm-store`,
+ * `artifacts/local-ci` (generated CI output) and `test/` (tests may call the primitive directly; a nested
+ * `scripts/test/` is shipped source and is scanned). Only JavaScript is read: an import cannot live in
  * JSON, YAML or a shell script, which at most invoke the CLI. A directory or file that cannot be read
  * throws, so the scan fails closed rather than quietly covering less.
  */
 const SOURCE_FILE = /\.(?:mjs|cjs|js|mts|cts|ts)$/i;
-const SKIPPED_DIRS = new Set([".git", "node_modules", ".pnpm-store", "test", "artifacts/local-ci"]); // a name anywhere, or a path from the root
+// Only these paths from the root are skipped (so scripts/test/ is scanned); node_modules is skipped at any depth.
+const SKIPPED_DIRS = new Set([".git", ".pnpm-store", "test", "artifacts/local-ci"]);
 function codeSources(root, rel = "") {
   const out = {};
   for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
     const r = rel ? `${rel}/${e.name}` : e.name;
     if (e.isDirectory()) {
-      if (!SKIPPED_DIRS.has(r) && !SKIPPED_DIRS.has(e.name)) Object.assign(out, codeSources(root, r));
+      if (!SKIPPED_DIRS.has(r) && e.name !== "node_modules") Object.assign(out, codeSources(root, r));
     } else if (SOURCE_FILE.test(e.name)) {
       out[r] = readFileSync(path.join(root, r), "utf8");
     }
@@ -1982,6 +1984,8 @@ test("the source walk reaches nested modules and skips only test/, VCS, dependen
       "test/t.test.mjs": "skipped",
       "node_modules/m/i.js": "skipped",
       "scripts/node_modules/m/i.js": "skipped",
+      "scripts/test/helper.mjs": "import { loadBettingPolicy } from \"../policy.mjs\";",
+      "scripts/.git/x.js": "shipped: only the root .git is VCS",
       "artifacts/local-ci/out.js": "skipped",
       "scripts/readme.md": "skipped",
     })) {
@@ -1989,10 +1993,17 @@ test("the source walk reaches nested modules and skips only test/, VCS, dependen
       writeFileSync(path.join(dir, file), text);
     }
     const found = codeSources(dir);
-    assert.deepEqual(Object.keys(found).sort(), ["scripts/lib/deep/helper.mjs", "scripts/policy.mjs", "src/x.js"]);
+    assert.deepEqual(Object.keys(found).sort(), [
+      "scripts/.git/x.js",
+      "scripts/lib/deep/helper.mjs",
+      "scripts/policy.mjs",
+      "scripts/test/helper.mjs",
+      "src/x.js",
+    ]);
     // The nested helper reaches the primitive and is reported, with its full path.
     assert.deepEqual(policyLoaderDrift(found, {}).unexpected, [
       "scripts/lib/deep/helper.mjs: import { loadBettingPolicy } from \"../../policy.mjs\";",
+      "scripts/test/helper.mjs: import { loadBettingPolicy } from \"../policy.mjs\";",
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
