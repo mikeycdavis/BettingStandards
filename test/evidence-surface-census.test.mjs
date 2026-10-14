@@ -1926,27 +1926,35 @@ function policyLoaderMentions(sources) {
   return mentions;
 }
 
-/** Mentions not in `allowed`, and allowed entries that no longer match anything (so the list cannot rot). */
+/**
+ * Mentions beyond what `allowed` permits, and permitted mentions that are missing. `allowed` maps
+ * `file: trimmed line` to how many times that exact line may occur, so a second copy of an allowed line
+ * is as visible as a new one. Lists are `file: line`, one element per surplus or missing occurrence.
+ */
 function policyLoaderDrift(sources, allowed) {
-  const found = policyLoaderMentions(sources);
-  return {
-    unexpected: found.filter((m) => !allowed.includes(m)),
-    stale: allowed.filter((a) => !found.includes(a)),
-  };
+  const counts = new Map();
+  for (const m of policyLoaderMentions(sources)) counts.set(m, (counts.get(m) ?? 0) + 1);
+  const unexpected = [];
+  const stale = [];
+  for (const [m, n] of counts) for (let k = allowed[m] ?? 0; k < n; k += 1) unexpected.push(m);
+  for (const [m, want] of Object.entries(allowed)) for (let k = counts.get(m) ?? 0; k < want; k += 1) stale.push(m);
+  return { unexpected, stale };
 }
 
 // The complete, reviewed set of mentions in scripts/. A new line here is a new way to reach the loader.
-const LOAD_BETTING_POLICY_ALLOWED = [
-  "policy.mjs: export async function loadBettingPolicy(policyPath = BETTING_POLICY, schemaPath = BETTING_SCHEMA) {",
-  'decisions.mjs: import { loadBettingPolicy } from "./policy.mjs";',
-  "decisions.mjs: // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own",
-  "decisions.mjs: const policy = await loadBettingPolicy(policyPath);",
-];
+// Each line maps to the exact number of times it may occur in that file.
+const LOAD_BETTING_POLICY_ALLOWED = {
+  "policy.mjs: export async function loadBettingPolicy(policyPath = BETTING_POLICY, schemaPath = BETTING_SCHEMA) {": 1,
+  'decisions.mjs: import { loadBettingPolicy } from "./policy.mjs";': 1,
+  "decisions.mjs: // One path, resolved once. It used to be defaulted twice — `loadBettingPolicy` supplied its own": 1,
+  "decisions.mjs: const policy = await loadBettingPolicy(policyPath);": 1,
+};
 
 test("the loadBettingPolicy mention scan fails closed on any occurrence outside its allow-list", () => {
   const decl = "export async function loadBettingPolicy(p) {";
-  const allowed = [`policy.mjs: ${decl}`];
+  const allowed = { [`policy.mjs: ${decl}`]: 1 };
   const drift = (sources, list = allowed) => policyLoaderDrift(sources, list);
+  const call = "const policy = await loadBettingPolicy(policyPath);";
   assert.deepEqual(drift({ "policy.mjs": decl + "\n  return p;\n}\n" }), { unexpected: [], stale: [] });
   // Every way of reaching it, and every harmless spelling, is reported until a human allow-lists it.
   const reported = {
@@ -1969,7 +1977,12 @@ test("the loadBettingPolicy mention scan fails closed on any occurrence outside 
   // Unrelated text is not.
   assert.deepEqual(drift({ "policy.mjs": decl + "\n", "x.mjs": 'import * as o from "./standards.mjs";\nconst policy = 1;\n' }).unexpected, []);
   // An allow-list entry that matches nothing is itself a failure.
-  assert.deepEqual(drift({ "policy.mjs": "const x = 1;\n" }).stale, allowed);
+  assert.deepEqual(drift({ "policy.mjs": "const x = 1;\n" }).stale, [`policy.mjs: ${decl}`]);
+  // The count is exact: a second copy of an allowed line is surplus, and a missing copy is stale.
+  const once = { [`d.mjs: ${call}`]: 1 };
+  assert.deepEqual(drift({ "d.mjs": call + "\n" }, once), { unexpected: [], stale: [] });
+  assert.deepEqual(drift({ "d.mjs": call + "\n  " + call + "\n" }, once), { unexpected: [`d.mjs: ${call}`], stale: [] });
+  assert.deepEqual(drift({ "d.mjs": call + "\n" }, { [`d.mjs: ${call}`]: 2 }), { unexpected: [], stale: [`d.mjs: ${call}`] });
 });
 
 test("loadBettingPolicy is a primitive, reached in production only through a guarded checkDecisions", () => {
