@@ -1909,7 +1909,7 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
  * A small tokenizer, not a parser: a `/` starts a regular expression when the previous significant
  * character cannot end an operand, which is right for every construct a scan like this meets.
  */
-function codeOnly(text) {
+function codeOnly(text, keepStrings = false) {
   let out = "";
   const braces = []; // brace depth at which each open `${` resumes the template
   let depth = 0;
@@ -1942,10 +1942,13 @@ function codeOnly(text) {
       i = end === -1 ? n : end + 2;
       out += " ";
     } else if (c === '"' || c === "'") {
+      const start = i;
       i += 1;
       while (i < n && text[i] !== c && text[i] !== "\n") i += text[i] === "\\" ? 2 : 1;
       i += 1;
-      out += '""';
+      // With keepStrings, only a module specifier (after `from` or `import(`) keeps its text.
+      const specifier = keepStrings && /(?:\bfrom|\bimport\s*\()\s*$/.test(out);
+      out += specifier ? text.slice(start, i) : '""';
       prev = '"';
     } else if (c === "`") {
       i = skipTemplate(i + 1);
@@ -1996,9 +1999,21 @@ function codeOnly(text) {
  * `import()` followed by a string-keyed lookup; both need the name as string data, which is not read.
  */
 function loadBettingPolicyCallers(sources) {
+  // Any occurrence of the identifier, member access (`ns.loadBettingPolicy`) included.
+  const names = /(?<![\w$])loadBettingPolicy(?![\w$])/;
+  // Importing policy.mjs as a whole (namespace, default, `export *`, dynamic import) reaches the function
+  // without naming it, so it counts for every file but policy.mjs itself.
+  const spec = String.raw`["'][^"']*policy\.mjs["']`;
+  const wholeModule = new RegExp(
+    String.raw`\b(?:import\s*\*\s*as\s+[\w$]+|import\s+[\w$]+\s*(?:,\s*(?:\*\s*as\s+[\w$]+|\{[^}]*\}))?|export\s*\*(?:\s+as\s+[\w$]+)?)\s*from\s*${spec}` +
+      String.raw`|\bimport\s*\(\s*${spec}`,
+  );
   return Object.keys(sources)
     .filter((f) => f.endsWith(".mjs"))
-    .filter((f) => /(^|[^\w$.])loadBettingPolicy(?![\w$])/.test(codeOnly(sources[f]).replace(/\bfunction\s+loadBettingPolicy(?![\w$])/g, "function (")));
+    .filter((f) => {
+      const code = codeOnly(sources[f]).replace(/\bfunction\s+loadBettingPolicy(?![\w$])/g, "function (");
+      return names.test(code) || (f !== "policy.mjs" && wholeModule.test(codeOnly(sources[f], true)));
+    });
 }
 
 test("the loadBettingPolicy caller scan sees a helper inside policy.mjs, and ignores only the declaration", () => {
@@ -2019,10 +2034,14 @@ test("the loadBettingPolicy caller scan reads code only: comments and literals t
     "single-quoted string with escape": "const s = 'it\\'s loadBettingPolicy(p)';\n",
     "template literal": "const s = `calls loadBettingPolicy(p) ${1 + 1} loadBettingPolicy(q)`;\n",
     "string containing comment marker": 'const s = "// x"; const t = "loadBettingPolicy(p)";\n',
-    "regex literal": "const r = /loadBettingPolicy\(/g;\n",
+    "regex literal": "const r = /loadBettingPolicy\\(/g;\n",
+    "import spelled in a comment": '// import * as p from "./policy.mjs"\n/* export * from "./policy.mjs" */\n',
+    "import spelled in a string": "const s = 'import * as p from \"./policy.mjs\"';\n",
+    "unrelated module": 'import * as other from "./standards.mjs";\n',
   };
   for (const [label, src] of Object.entries(clean)) {
     assert.deepEqual(loadBettingPolicyCallers({ "policy.mjs": d + src }), [], `${label} was reported as a caller`);
+    assert.deepEqual(loadBettingPolicyCallers({ "user.mjs": src }), [], `${label} was reported as a caller in a consumer`);
   }
   const called = {
     "plain call": "async function h(p) { return loadBettingPolicy(p); }\n",
@@ -2035,9 +2054,25 @@ test("the loadBettingPolicy caller scan reads code only: comments and literals t
     "alias assignment": "const load = loadBettingPolicy;\n",
     "passed as an argument": "run(loadBettingPolicy);\n",
     "destructured import": 'import { loadBettingPolicy as lbp } from "./policy.mjs";\n',
+    "member call on any receiver": "this.deps.loadBettingPolicy(p);\n",
+    "namespace member call": 'import * as policy from "./policy.mjs";\npolicy.loadBettingPolicy(p);\n',
+    "named re-export": 'export { loadBettingPolicy } from "./policy.mjs";\n',
   };
   for (const [label, src] of Object.entries(called)) {
     assert.deepEqual(loadBettingPolicyCallers({ "policy.mjs": d + src }), ["policy.mjs"], `${label} was not caught`);
+    assert.deepEqual(loadBettingPolicyCallers({ "user.mjs": src }), ["user.mjs"], `${label} was not caught in a consumer`);
+  }
+  // Whole-module imports name nothing, but reach the function; they count outside policy.mjs.
+  const wholeModule = {
+    "namespace import": 'import * as policy from "./policy.mjs";\n',
+    "default import": 'import policy from "./policy.mjs";\n',
+    "default plus named import": 'import policy, { checkPolicy } from "./policy.mjs";\n',
+    "export star": 'export * from "./policy.mjs";\n',
+    "export star as": 'export * as policy from "./policy.mjs";\n',
+    "dynamic import": 'const m = await import("./policy.mjs");\n',
+  };
+  for (const [label, src] of Object.entries(wholeModule)) {
+    assert.deepEqual(loadBettingPolicyCallers({ "user.mjs": src }), ["user.mjs"], `${label} was not caught`);
   }
 });
 
