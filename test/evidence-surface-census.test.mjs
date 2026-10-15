@@ -2494,3 +2494,36 @@ test("ST-07 AC2: the drift check applies the package manifests, and an allow-lis
     assert.deepEqual(policyLoaderDrift(sources, {}).unexpected, []);
   });
 });
+
+test("ST-07 Codex P1: a URL query, fragment or percent-encoding on a target does not hide the policy module or a test/ helper", () => {
+  const cases = {
+    "query on the policy module": [{ "#policy": "./scripts/policy.mjs?variant" }, "#policy"],
+    "fragment on the policy module": [{ "#policy": "./scripts/policy.mjs#x" }, "#policy"],
+    "query on a root-test helper pattern": [{ "#t/*": "./test/*?v=1" }, "#t/policy-helper.mjs"],
+    "percent-encoded letter": [{ "#policy": "./scripts/%70olicy.mjs" }, "#policy"],
+  };
+  for (const [label, [imports, spec]] of Object.entries(cases)) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) }));
+    assert.ok(current.includes(usage("scripts/user.mjs", spec)), `${label}: shipped import not reported`);
+    assert.ok(current.some((m) => m.startsWith("package.json: imports[")), `${label}: map entry not reported`);
+  }
+  // Negative control: a query on a shipped, unrelated target is still unrelated.
+  const { current } = bothScanners(mapTree({ "#lib": "./scripts/lib/ok.mjs?v=1" }, { "scripts/user.mjs": MAP_SOURCE("#lib") }));
+  assert.deepEqual(current, []);
+});
+
+test("ST-07 Codex P1: equal-prefix pattern keys are tied by the longer key, as Node does, whatever their order", () => {
+  const spec = "#a/test/policy-helper.js";
+  const routed = { "#a/*": "./scripts/lib/*", "#a/*.js": "./*.mjs" };
+  const reversed = { "#a/*.js": "./*.mjs", "#a/*": "./scripts/lib/*" };
+  for (const imports of [routed, reversed]) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) }));
+    assert.ok(current.includes(usage("scripts/user.mjs", spec)), `${JSON.stringify(Object.keys(imports))}: not reported`);
+  }
+  // The longer key being the safe one is not reported either way.
+  const safe = { "#a/*": "./test/*", "#a/*.js": "./scripts/lib/*.mjs" };
+  for (const imports of [safe, Object.fromEntries(Object.entries(safe).reverse())]) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE("#a/ok.js") }));
+    assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), []);
+  }
+});
