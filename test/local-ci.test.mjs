@@ -412,7 +412,7 @@ describe("compose.ci.yml mounts nothing from the host", () => {
       .split(/\r?\n/)
       .filter((line) => !/^\s*#/.test(line))
       .join("\n");
-    assert.doesNotMatch(code, /^\s*volumes\s*:/m, "compose.ci.yml declares volumes");
+    assert.doesNotMatch(code, /^\s*volumes(_from)?\s*:/m, "compose.ci.yml declares volumes or volumes_from");
     assert.doesNotMatch(code, /^\s*type\s*:\s*bind\b/m, "compose.ci.yml declares a bind mount");
     assert.doesNotMatch(code, /^\s*-\s*["']?\.{0,2}\/[^\s"']*:[^\s"']+/m, "compose.ci.yml declares a host-path mount");
   });
