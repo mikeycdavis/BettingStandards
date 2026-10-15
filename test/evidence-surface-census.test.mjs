@@ -2035,6 +2035,14 @@ function importTargets(target) {
  */
 function resolveImportTarget(dir, target) {
   if (!target.startsWith("./")) return null;
+  // A target is a URL: Node drops a query or fragment and percent-decodes the path.
+  let pathPart = target.replace(/[?#][\s\S]*$/, "");
+  try {
+    pathPart = decodeURIComponent(pathPart);
+  } catch {
+    // keep the undecoded text: it is still tested
+  }
+  target = pathPart;
   const segments = target.slice(2).split("/");
   if (segments.some((s) => s === ".." || s === "." || s.toLowerCase() === "node_modules")) return null;
   return path.posix.normalize(dir ? `${dir}/${target.slice(2)}` : target.slice(2));
@@ -2065,7 +2073,7 @@ function importMapRoutesToExcluded(s, scope) {
     if (star === -1 || key.indexOf("*", star + 1) !== -1) continue;
     const prefix = key.slice(0, star);
     const suffix = key.slice(star + 1);
-    if (s.length >= key.length && s !== key && s.startsWith(prefix) && s.endsWith(suffix) && (best === null || prefix.length > best.prefix.length)) {
+    if (s.length >= key.length && s !== key && s.startsWith(prefix) && s.endsWith(suffix) && (best === null || prefix.length > best.prefix.length || (prefix.length === best.prefix.length && key.length > best.key.length))) {
       best = { key, prefix, matched: s.slice(prefix.length, s.length - suffix.length) };
     }
   }
