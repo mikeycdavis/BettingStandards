@@ -1914,28 +1914,184 @@ test("beyond JS: the wrappers name no surface that interprets a subject (classif
  * tokenizer to be fooled by a regex literal, a template, a member access or an unusual import form.
  * What it cannot see: a name or path assembled at run time (`"./pol" + "icy.mjs"`, `mod[key]`).
  */
-function policyLoaderMentions(sources) {
-  // Escapes are resolved first, so policy.mjs or loadBettingPolicy match like the plain text.
-  const unescape = (t) =>
-    t
-      .replace(/\\u\{([0-9a-fA-F]+)\}/g, (m, h) => (parseInt(h, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(h, 16)) : m))
-      .replace(/\\u([0-9a-fA-F]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
-      .replace(/\\x([0-9a-fA-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+function policyLoaderMentions(sources, manifests = {}) {
   const mentions = [];
   for (const [file, text] of Object.entries(sources)) {
-    for (const raw of text.split(/\r?\n/)) {
-      const line = unescape(raw);
-      const named = /loadBettingPolicy/.test(line) || /["'`][^"'`\n]*policy\.mjs[^"'`\n]*["'`]/.test(line);
-      // Any escape sequence is itself reported: it can hide a spelling this scan does not resolve, so a
-      // human dispositions it like any other mention.
-      const escaped = /\\(?:u\{|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})/.test(raw);
+    const scope = nearestManifest(file, manifests);
+    for (const physical of logicalLines(text)) {
+      const raw = physical.join("\n").trim();
+      // Every spelling the line can have: each physical line with the delivered partial unescape (kept,
+      // so nothing it reported is lost), and the whole logical line with every escape and line
+      // continuation resolved the way JavaScript reads a string.
+      const variants = [...physical.map(legacyUnescape), resolveEscapes(physical.join("\n"))];
+      const named = variants.some((v) => /loadBettingPolicy/.test(v) || /["'`][^"'`]*policy\.mjs[^"'`]*["'`]/.test(v));
+      // Any \u or \x escape is itself reported: it can hide a spelling this scan does not resolve, so a
+      // human dispositions it like any other mention. Ordinary escapes and continuations are resolved
+      // above and reported only when what they spell is a mention.
+      const escaped = physical.some((p) => /\\(?:u\{|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})/.test(p));
       // A production file quoting a path inside the root test/ directory could reach a shared helper that
       // calls the primitive from where the scan does not look; any such quote is reported.
-      const intoTests = /["'`](?:[^"'`\n]*[/\\])?test[/\\][^"'`\n]*["'`]/.test(line);
-      if (named || escaped || intoTests) mentions.push(`${file}: ${raw.trim()}`);
+      const intoTests = variants.some((v) => /["'`](?:[^"'`]*[/\\])?test[/\\][^"'`]*["'`]/.test(v));
+      // A quoted `#specifier` that the nearest package scope's `imports` map routes to a root-test helper
+      // or to the policy module.
+      const mapped = quotedSpecifiers(physical.join("\n")).some((s) => importMapRoutesToExcluded(s, scope));
+      if (named || escaped || intoTests || mapped) mentions.push(`${file}: ${raw}`);
+    }
+  }
+  // The map entries themselves: a package `imports` entry whose target is a root-test helper or the policy
+  // module is reported where it is declared, used or not.
+  for (const [file, manifest] of Object.entries(manifests)) {
+    const dir = path.posix.dirname(file) === "." ? "" : path.posix.dirname(file);
+    for (const [key, target] of Object.entries(importsOf(manifest))) {
+      for (const t of importTargets(target)) {
+        const resolved = resolveImportTarget(dir, t);
+        if (resolved !== null && isExcludedTarget(resolved)) mentions.push(`${file}: imports[${JSON.stringify(key)}] -> ${t}`);
+      }
     }
   }
   return mentions;
+}
+
+/** The delivered \u / \x resolver, kept so the scan only ever reports more than it did. */
+function legacyUnescape(t) {
+  return t
+    .replace(/\\u\{([0-9a-fA-F]+)\}/g, (m, h) => (parseInt(h, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(h, 16)) : m))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
+/**
+ * Resolves every escape in `t` in ONE pass, so `\\` is a backslash and what follows it is not an escape:
+ * \u{...}, \uXXXX, \xXX, legacy octal (\0-\377), the single-character escapes, a line continuation
+ * (backslash then a line terminator) which is nothing, and any other escaped character, which is itself.
+ * An escape that is not valid is left as written (the \u / \x report above still covers it).
+ */
+function resolveEscapes(t) {
+  const single = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v" };
+  return t.replace(
+    /\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([0-3][0-7]{0,2}|[4-7][0-7]?)|(\r\n|[\n\r\u2028\u2029])|([\s\S]))/g,
+    (m, braced, u4, x2, octal, newline, other) => {
+      if (braced !== undefined) return parseInt(braced, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(braced, 16)) : m;
+      if (u4 !== undefined) return String.fromCharCode(parseInt(u4, 16));
+      if (x2 !== undefined) return String.fromCharCode(parseInt(x2, 16));
+      if (octal !== undefined) return String.fromCharCode(parseInt(octal, 8));
+      if (newline !== undefined) return "";
+      return single[other] ?? other;
+    },
+  );
+}
+
+/**
+ * A file's lines as groups of physical lines: a line that ends in an odd number of backslashes continues
+ * onto the next (a string-literal line continuation), so `"./pol\` + newline + `icy.mjs"` is one logical line.
+ */
+function logicalLines(text) {
+  const groups = [];
+  let current = [];
+  for (const line of text.split(/\r?\n/)) {
+    current.push(line);
+    const trailing = /\\*$/.exec(line)[0].length;
+    if (trailing % 2 === 0) {
+      groups.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) groups.push(current);
+  return groups;
+}
+
+/** Every quoted string's content on a (resolved) line that starts with `#`: a package-import specifier. */
+function quotedSpecifiers(text) {
+  // Parsed against the RAW text relative to each string's own delimiter: another quote character may sit
+  // inside it, and an escaped delimiter does not end it. Every quote is tried as a start, so a stray
+  // apostrophe in a comment cannot swallow a real specifier; the content is then escape-resolved.
+  const strings = { '"': /"((?:\\[\s\S]|[^"\\])*)"/y, "'": /'((?:\\[\s\S]|[^'\\])*)'/y, "`": /`((?:\\[\s\S]|[^`\\])*)`/y };
+  const out = [];
+  for (let i = 0; i < text.length; i += 1) {
+    const re = strings[text[i]];
+    if (re === undefined) continue;
+    re.lastIndex = i;
+    const m = re.exec(text);
+    if (m !== null) {
+      const content = resolveEscapes(m[1]);
+      if (content.startsWith("#")) out.push(content);
+    }
+  }
+  return out;
+}
+
+/** Nearest package.json at or above the file's directory, as `{ dir, imports }`, or null. */
+function nearestManifest(file, manifests) {
+  let dir = path.posix.dirname(file) === "." ? "" : path.posix.dirname(file);
+  for (;;) {
+    const key = dir ? `${dir}/package.json` : "package.json";
+    if (Object.hasOwn(manifests, key)) return { dir, imports: importsOf(manifests[key]) };
+    if (dir === "") return null;
+    dir = path.posix.dirname(dir) === "." ? "" : path.posix.dirname(dir);
+  }
+}
+
+const importsOf = (manifest) => (manifest && typeof manifest.imports === "object" && manifest.imports !== null && !Array.isArray(manifest.imports) ? manifest.imports : {});
+
+/** Every string a package target can resolve to: all conditions and all fallbacks (null blocks, so none). */
+function importTargets(target) {
+  if (typeof target === "string") return [target];
+  if (Array.isArray(target)) return target.flatMap(importTargets);
+  if (target !== null && typeof target === "object") return Object.values(target).flatMap(importTargets);
+  return [];
+}
+
+/**
+ * A target resolved against its package directory as a repository-relative posix path, or null when Node
+ * would not resolve it: it must start with `./`, and may not contain `.`, `..` or `node_modules` segments.
+ * A `*` is left in place.
+ */
+function resolveImportTarget(dir, target) {
+  // A target is a URL: Node drops a query or fragment and percent-decodes the path. A backslash is a
+  // path separator to a file URL on Windows, so it is read as one (conservatively, on every host).
+  let pathPart = target.replace(/[?#][\s\S]*$/, "");
+  try {
+    pathPart = decodeURIComponent(pathPart);
+  } catch {
+    // keep the undecoded text: it is still tested
+  }
+  target = pathPart.replaceAll("\\", "/");
+  if (!target.startsWith("./")) return null;
+  const segments = target.slice(2).split("/");
+  if (segments.some((s) => s === ".." || s === "." || s.toLowerCase() === "node_modules")) return null;
+  return path.posix.normalize(dir ? `${dir}/${target.slice(2)}` : target.slice(2));
+}
+
+/** The excluded boundary: the root test/ directory, or the module that defines the primitive. */
+const isExcludedTarget = (resolved) => resolved === "test" || resolved.startsWith("test/") || /policy\.mjs$/.test(resolved);
+
+/**
+ * Whether specifier `s`, imported from a file in package scope `scope`, is routed by that scope's
+ * `imports` map to an excluded target. Node's rules: only the nearest package.json applies; an exact key
+ * wins and is final (a null target blocks); otherwise the pattern key with the longest prefix that
+ * matches substitutes its `*` into the target. Conditions cannot be evaluated here, so every branch of a
+ * conditional or fallback target counts: a deliberately conservative report, not run-time reachability.
+ */
+function importMapRoutesToExcluded(s, scope) {
+  if (scope === null) return false;
+  const { dir, imports } = scope;
+  const routed = (target, matched) =>
+    importTargets(target).some((t) => {
+      const resolved = resolveImportTarget(dir, matched === null ? t : t.replaceAll("*", matched));
+      return resolved !== null && isExcludedTarget(resolved);
+    });
+  if (Object.hasOwn(imports, s) && !s.includes("*")) return routed(imports[s], null);
+  let best = null;
+  for (const key of Object.keys(imports)) {
+    const star = key.indexOf("*");
+    if (star === -1 || key.indexOf("*", star + 1) !== -1) continue;
+    const prefix = key.slice(0, star);
+    const suffix = key.slice(star + 1);
+    if (s.length >= key.length && s !== key && s.startsWith(prefix) && s.endsWith(suffix) && (best === null || prefix.length > best.prefix.length || (prefix.length === best.prefix.length && key.length > best.key.length))) {
+      best = { key, prefix, matched: s.slice(prefix.length, s.length - suffix.length) };
+    }
+  }
+  return best === null ? false : routed(imports[best.key], best.matched);
 }
 
 /**
@@ -1963,13 +2119,31 @@ function codeSources(root, rel = "") {
 }
 
 /**
+ * Every package.json in the shipped tree (same walk and skips as `codeSources`), as `relative/path ->
+ * parsed JSON`. These are the package scopes a shipped import's `#specifier` is resolved against. A
+ * manifest that cannot be read or parsed throws, so the scan fails closed.
+ */
+function packageManifests(root, rel = "") {
+  const out = {};
+  for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) {
+      if (!SKIPPED_DIRS.has(r) && e.name !== "node_modules") Object.assign(out, packageManifests(root, r));
+    } else if (e.name === "package.json") {
+      out[r] = JSON.parse(readFileSync(path.join(root, r), "utf8"));
+    }
+  }
+  return out;
+}
+
+/**
  * Mentions beyond what `allowed` permits, and permitted mentions that are missing. `allowed` maps
  * `file: trimmed line` to how many times that exact line may occur, so a second copy of an allowed line
  * is as visible as a new one. Lists are `file: line`, one element per surplus or missing occurrence.
  */
-function policyLoaderDrift(sources, allowed) {
+function policyLoaderDrift(sources, allowed, manifests = {}) {
   const counts = new Map();
-  for (const m of policyLoaderMentions(sources)) counts.set(m, (counts.get(m) ?? 0) + 1);
+  for (const m of policyLoaderMentions(sources, manifests)) counts.set(m, (counts.get(m) ?? 0) + 1);
   const unexpected = [];
   const stale = [];
   for (const [m, n] of counts) for (let k = allowed[m] ?? 0; k < n; k += 1) unexpected.push(m);
@@ -2091,6 +2265,7 @@ test("loadBettingPolicy is a primitive, reached in production only through a gua
   const drift = policyLoaderDrift(
     codeSources(ROOT),
     LOAD_BETTING_POLICY_ALLOWED,
+    packageManifests(ROOT),
   );
   assert.deepEqual(drift.unexpected, [], "a new mention of loadBettingPolicy or of policy.mjs appeared; classify what it reaches, then allow-list it");
   assert.deepEqual(drift.stale, [], "an allow-listed mention of loadBettingPolicy no longer exists; remove it from the list");
@@ -2109,4 +2284,297 @@ test("loadBettingPolicy is a primitive, reached in production only through a gua
   const load = fn.indexOf("loadBettingPolicy(");
   assert.ok(refusal !== -1 && load !== -1, "checkDecisions no longer shows both calls");
   assert.ok(refusal < load, "checkDecisions loads the betting policy before it has established the authority");
+});
+
+/* --------------------------------------------------------------------------------------------
+ * ST-07: ordinary string escapes, line continuations and package import maps.
+ *
+ * Everything below tests the scanner above, not production code, and every fixture is written to a
+ * temporary directory outside this repository's tree. The scanner stays a deliberately conservative
+ * text scan: it reports what it cannot rule out and a human dispositions it through the counted
+ * allow-list. A report is NOT a claim that the module is reachable at run time.
+ *
+ * LEGACY_POLICY_LOADER_MENTIONS is the scanner exactly as delivered at a887590 (before ST-07), kept as a
+ * frozen oracle so the causal tests show, in one run, that the delivered scanner misses a fixture and
+ * the current scanner reports it.
+ * ------------------------------------------------------------------------------------------ */
+
+function LEGACY_POLICY_LOADER_MENTIONS(sources) {
+  const unescape = (t) =>
+    t
+      .replace(/\\u\{([0-9a-fA-F]+)\}/g, (m, h) => (parseInt(h, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(h, 16)) : m))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+  const mentions = [];
+  for (const [file, text] of Object.entries(sources)) {
+    for (const raw of text.split(/\r?\n/)) {
+      const line = unescape(raw);
+      const named = /loadBettingPolicy/.test(line) || /["'`][^"'`\n]*policy\.mjs[^"'`\n]*["'`]/.test(line);
+      const escaped = /\\(?:u\{|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2})/.test(raw);
+      const intoTests = /["'`](?:[^"'`\n]*[/\\])?test[/\\][^"'`\n]*["'`]/.test(line);
+      if (named || escaped || intoTests) mentions.push(`${file}: ${raw.trim()}`);
+    }
+  }
+  return mentions;
+}
+
+/** Writes `files` (relative path -> text) under a fresh temporary directory, runs `fn(dir)`, removes it. */
+function withFixtureTree(files, fn) {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "census-st07-"));
+  try {
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      writeFileSync(path.join(dir, file), text);
+    }
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The mentions of a fixture tree under the current scanner, and under the delivered one. */
+function bothScanners(files) {
+  return withFixtureTree(files, (dir) => ({
+    current: policyLoaderMentions(codeSources(dir), packageManifests(dir)),
+    delivered: LEGACY_POLICY_LOADER_MENTIONS(codeSources(dir)),
+  }));
+}
+
+test("ST-07 AC1: ordinary escapes and line continuations that spell the policy module are reported; the delivered scanner missed them", () => {
+  const fixtures = {
+    "escaped dot (the reported example)": String.raw`const m = await import("./policy\.mjs");`,
+    "escaped letter": String.raw`import { x } from "./po\licy\.mjs";`,
+    "escaped slash": String.raw`import "..\/scripts\/pol\icy.mjs";`,
+    "legacy octal escape": String.raw`require("./\160olicy.mjs");`,
+    "escaped identifier text in a string": String.raw`const n = "load\BettingPolicy";`,
+  };
+  for (const [label, line] of Object.entries(fixtures)) {
+    const { current, delivered } = bothScanners({ "scripts/policy.mjs": "const a = 1;\n", "scripts/x.mjs": line + "\n" });
+    assert.deepEqual(delivered, [], `${label}: the delivered scanner was expected to miss it`);
+    assert.deepEqual(current, [`scripts/x.mjs: ${line}`], `${label} was not reported`);
+  }
+  const continued = {
+    "line continuation inside the specifier": ['const m = await import("./pol\\', 'icy.mjs");'],
+    "continuation before the extension": ['import("./policy\\', '.mjs");'],
+    "two continuations": ['import("./po\\', 'li\\', 'cy.mjs");'],
+  };
+  for (const [label, lines] of Object.entries(continued)) {
+    for (const eol of ["\n", "\r\n"]) {
+      const { current, delivered } = bothScanners({ "scripts/policy.mjs": "const a = 1;\n", "scripts/x.mjs": lines.join(eol) + eol });
+      assert.deepEqual(delivered, [], `${label}: the delivered scanner was expected to miss it`);
+      assert.deepEqual(current, [`scripts/x.mjs: ${lines.map((l) => l.trim()).join("\n")}`], `${label} (${JSON.stringify(eol)}) was not reported`);
+    }
+  }
+  // A continuation also exposes a root test/ path or the primitive's name.
+  const { current } = bothScanners({ "scripts/x.mjs": 'import("../te\\\nst/h.mjs");\nconst f = "loadBetting\\\nPolicy";\n' });
+  assert.equal(current.length, 2);
+});
+
+test("ST-07 AC1/AC3: escapes and continuations that do not spell the module, and benign lookalikes, stay unreported", () => {
+  const benign = [
+    String.raw`const a = "a\nb\tc";`,
+    String.raw`const b = "./police\.mjs";`,
+    String.raw`const c = "./policy\.json";`,
+    String.raw`const d = "\\policy";`,
+    'const f = "a long string \\\nthat continues";',
+    String.raw`const g = "./attest\/x.mjs";`,
+    "const h = 'polic' + 'y.mjs';",
+    // An escaped backslash is one backslash, so what follows it is not an escape: this spells `policy.mjs`.
+    String.raw`const k = "./pol\\icy.mjs";`,
+  ];
+  const { current } = bothScanners({ "scripts/policy.mjs": "const a = 1;\n", "scripts/x.mjs": benign.join("\n") + "\n" });
+  assert.deepEqual(current, [], "benign escapes were reported");
+});
+
+test("ST-07 AC1: existing Unicode, hex, direct-path, alias and member coverage still reports through the escape resolver", () => {
+  const lines = [
+    'const m = await import("./policy.mjs");',
+    String.raw`import("./polic\x79.mjs");`,
+    String.raw`import("./\u{70}olicy.mjs");`,
+    "const load = loadBettingPolicy;",
+    "policy.loadBettingPolicy(p);",
+  ];
+  const { current } = bothScanners({ "scripts/x.mjs": lines.join("\n") + "\n" });
+  assert.deepEqual(current, lines.map((l) => `scripts/x.mjs: ${l}`));
+});
+
+const MAP_SOURCE = (spec) => `import { helper } from "${spec}";\n`;
+const mapTree = (imports, extra = {}) => ({
+  "package.json": JSON.stringify({ name: "fixture", type: "module", imports }, null, 2) + "\n",
+  "test/policy-helper.mjs": 'import { loadBettingPolicy } from "../scripts/policy.mjs";\nexport const helper = loadBettingPolicy;\n',
+  "test/helpers/deep.mjs": "export const deep = 1;\n",
+  "scripts/policy.mjs": "export const x = 1;\n",
+  "scripts/lib/ok.mjs": "export const ok = 1;\n",
+  ...extra,
+});
+const usage = (file, spec) => `${file}: ${MAP_SOURCE(spec).trim()}`;
+
+test("ST-07 AC2/AC3: a package import map routing a shipped import to an excluded root-test helper is reported; the delivered scanner missed it", () => {
+  const cases = {
+    "direct string target": [{ "#policy-helper": "./test/policy-helper.mjs" }, "#policy-helper"],
+    "conditional target (any branch)": [{ "#policy-helper": { node: "./scripts/lib/ok.mjs", default: "./test/policy-helper.mjs" } }, "#policy-helper"],
+    "nested conditions": [{ "#policy-helper": { import: { node: { default: "./test/policy-helper.mjs" } } } }, "#policy-helper"],
+    "array of fallbacks": [{ "#policy-helper": ["./scripts/lib/ok.mjs", "./test/policy-helper.mjs"] }, "#policy-helper"],
+    "subpath pattern into test/": [{ "#t/*": "./test/*" }, "#t/policy-helper.mjs"],
+    "subpath pattern with suffix": [{ "#h/*.js": "./test/helpers/*.mjs" }, "#h/deep.js"],
+    "exact key wins over a pattern": [{ "#a/*": "./scripts/lib/*", "#a/x.mjs": "./test/policy-helper.mjs" }, "#a/x.mjs"],
+    "longest pattern prefix wins": [{ "#a/*": "./scripts/lib/*", "#a/b/*": "./test/*" }, "#a/b/policy-helper.mjs"],
+    "target is the policy module itself": [{ "#policy": "./scripts/policy.mjs" }, "#policy"],
+    "specifier spelled with an escape": [{ "#policy-helper": "./test/policy-helper.mjs" }, String.raw`#policy\-helper`],
+  };
+  for (const [label, [imports, spec]] of Object.entries(cases)) {
+    const files = mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) });
+    const { current, delivered } = bothScanners(files);
+    assert.deepEqual(delivered, [], `${label}: the delivered scanner was expected to miss it`);
+    assert.ok(current.includes(usage("scripts/user.mjs", spec)), `${label}: the shipped import was not reported (got ${JSON.stringify(current)})`);
+  }
+});
+
+test("ST-07 AC2: a pattern that expands into test/ only for this specifier is reported (the delivered scanner also sees the quoted test/ path here)", () => {
+  const files = mapTree({ "#all/*": "./*" }, { "scripts/user.mjs": MAP_SOURCE("#all/test/policy-helper.mjs") });
+  assert.ok(bothScanners(files).current.includes(usage("scripts/user.mjs", "#all/test/policy-helper.mjs")));
+});
+
+test("ST-07 AC2/AC3: import-map negative controls are not reported", () => {
+  const ok = (label, files) => {
+    const { current } = bothScanners(files);
+    assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), [], label);
+  };
+  const user = (spec, file = "scripts/user.mjs") => ({ [file]: MAP_SOURCE(spec) });
+  ok("unrelated target", mapTree({ "#lib": "./scripts/lib/ok.mjs" }, user("#lib")));
+  ok("blocked (null) target", mapTree({ "#policy-helper": null }, user("#policy-helper")));
+  ok("benign lookalike specifier", mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, user("#policy-helper-2")));
+  ok("a specifier the map does not define", mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, user("#other")));
+  ok("not an import-map specifier", mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, user("policy-helper")));
+  ok("pattern that does not match", mapTree({ "#t/*": "./test/*" }, user("#u/policy-helper.mjs")));
+  ok("pattern expanded to a shipped path", mapTree({ "#all/*": "./*" }, user("#all/scripts/lib/ok.mjs")));
+  ok("exact key shadows a test/ pattern", mapTree({ "#a/*": "./test/*", "#a/x.mjs": "./scripts/lib/ok.mjs" }, user("#a/x.mjs")));
+  ok("a directory named test that is not the root test/", mapTree({ "#s": "./scripts/test/x.mjs" }, user("#s")));
+  ok("a bare-package target is not a root-test helper", mapTree({ "#p": "left-pad" }, user("#p")));
+  ok("invalid target segments are not resolved by Node", mapTree({ "#p": "./scripts/../test/policy-helper.mjs" }, user("#p")));
+  // Package scope boundary: the nearest package.json decides, and its ./ is its own directory.
+  ok(
+    "a nested package scope without imports shadows the root map",
+    mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, { "scripts/pkg/package.json": "{}\n", ...user("#policy-helper", "scripts/pkg/user.mjs") }),
+  );
+  ok(
+    "a nested package's ./test/ is that package's directory, not the root test/",
+    mapTree({}, { "scripts/pkg/package.json": JSON.stringify({ imports: { "#h": "./test/h.mjs" } }), ...user("#h", "scripts/pkg/user.mjs") }),
+  );
+  // The root test/ is not shipped source and is not scanned.
+  const { current } = bothScanners(mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, { "test/user.test.mjs": MAP_SOURCE("#policy-helper") }));
+  assert.ok(!current.some((m) => m.startsWith("test/")));
+});
+
+test("ST-07 AC2: the root package scope applies to nested shipped files, and an invalid nested target is not a route", () => {
+  const files = mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, { "scripts/lib/deep/user.mjs": MAP_SOURCE("#policy-helper") });
+  assert.ok(bothScanners(files).current.includes(usage("scripts/lib/deep/user.mjs", "#policy-helper")));
+  const up = mapTree({}, { "scripts/pkg/package.json": JSON.stringify({ imports: { "#h": "./../../test/h.mjs" } }), "scripts/pkg/u.mjs": MAP_SOURCE("#h") });
+  assert.deepEqual(bothScanners(up).current, []);
+});
+
+test("ST-07 AC2: the map entry itself is reported, and unsupported forms are named, not claimed", () => {
+  const { current } = bothScanners(mapTree({ "#policy-helper": "./test/policy-helper.mjs", "#lib": "./scripts/lib/ok.mjs" }));
+  assert.deepEqual(current, ['package.json: imports["#policy-helper"] -> ./test/policy-helper.mjs']);
+  // Not modelled, and not claimed: the package's own `exports` self-reference, bare-package and URL
+  // targets, loader flags and conditions, and specifiers built at run time. A folder key ("#dir/") is
+  // reported at the map entry only, never at a use, because Node no longer resolves it.
+  const silent = mapTree(
+    {},
+    {
+      "package.json": JSON.stringify({ name: "fixture", exports: { "./h": "./test/policy-helper.mjs" }, imports: { "#dir/": "./test/", "#url": "file:///x/test/h.mjs" } }),
+      "scripts/user.mjs": 'import "fixture/h";\nimport "#dir/policy-helper.mjs";\nimport "#url";\nimport("#poli" + "cy-helper");\n',
+    },
+  );
+  assert.deepEqual(bothScanners(silent).current, ['package.json: imports["#dir/"] -> ./test/']);
+});
+
+test("ST-07 AC3/AC5: a manifest that cannot be parsed throws, and only shipped package scopes are read", () => {
+  withFixtureTree({ "package.json": "{ not json" }, (dir) => assert.throws(() => packageManifests(dir)));
+  withFixtureTree(
+    { "package.json": '{"imports":{"#a":"./test/x.mjs"}}', "scripts/package.json": "{}", "node_modules/m/package.json": "{ bad", "test/package.json": "{ bad" },
+    (dir) => assert.deepEqual(Object.keys(packageManifests(dir)).sort(), ["package.json", "scripts/package.json"]),
+  );
+});
+
+test("ST-07 AC1/AC3: a line that ends in an even number of backslashes is not a continuation", () => {
+  const lines = ["// a Windows path ending in a doubled backslash: C:\\\\dir\\\\", 'import("./policy.mjs");'];
+  const { current } = bothScanners({ "scripts/x.mjs": lines.join("\n") + "\n" });
+  assert.deepEqual(current, ['scripts/x.mjs: import("./policy.mjs");']);
+});
+
+test("ST-07 AC2: the drift check applies the package manifests, and an allow-listed map entry is counted like any mention", () => {
+  const files = mapTree({ "#policy-helper": "./test/policy-helper.mjs" }, { "scripts/user.mjs": MAP_SOURCE("#policy-helper") });
+  withFixtureTree(files, (dir) => {
+    const sources = codeSources(dir);
+    const manifests = packageManifests(dir);
+    const entry = 'package.json: imports["#policy-helper"] -> ./test/policy-helper.mjs';
+    const use = usage("scripts/user.mjs", "#policy-helper");
+    assert.deepEqual(policyLoaderDrift(sources, {}, manifests).unexpected.sort(), [entry, use].sort());
+    assert.deepEqual(policyLoaderDrift(sources, { [entry]: 1, [use]: 1 }, manifests), { unexpected: [], stale: [] });
+    // Without the manifests the delivered blind spot returns: nothing is reported.
+    assert.deepEqual(policyLoaderDrift(sources, {}).unexpected, []);
+  });
+});
+
+test("ST-07 Codex P1: a URL query, fragment or percent-encoding on a target does not hide the policy module or a test/ helper", () => {
+  const cases = {
+    "query on the policy module": [{ "#policy": "./scripts/policy.mjs?variant" }, "#policy"],
+    "fragment on the policy module": [{ "#policy": "./scripts/policy.mjs#x" }, "#policy"],
+    "query on a root-test helper pattern": [{ "#t/*": "./test/*?v=1" }, "#t/policy-helper.mjs"],
+    "percent-encoded letter": [{ "#policy": "./scripts/%70olicy.mjs" }, "#policy"],
+  };
+  for (const [label, [imports, spec]] of Object.entries(cases)) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) }));
+    assert.ok(current.includes(usage("scripts/user.mjs", spec)), `${label}: shipped import not reported`);
+    assert.ok(current.some((m) => m.startsWith("package.json: imports[")), `${label}: map entry not reported`);
+  }
+  // Negative control: a query on a shipped, unrelated target is still unrelated.
+  const { current } = bothScanners(mapTree({ "#lib": "./scripts/lib/ok.mjs?v=1" }, { "scripts/user.mjs": MAP_SOURCE("#lib") }));
+  assert.deepEqual(current, []);
+});
+
+test("ST-07 Codex P1: equal-prefix pattern keys are tied by the longer key, as Node does, whatever their order", () => {
+  const spec = "#a/test/policy-helper.js";
+  const routed = { "#a/*": "./scripts/lib/*", "#a/*.js": "./*.mjs" };
+  const reversed = { "#a/*.js": "./*.mjs", "#a/*": "./scripts/lib/*" };
+  for (const imports of [routed, reversed]) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) }));
+    assert.ok(current.includes(usage("scripts/user.mjs", spec)), `${JSON.stringify(Object.keys(imports))}: not reported`);
+  }
+  // The longer key being the safe one is not reported either way.
+  const safe = { "#a/*": "./test/*", "#a/*.js": "./scripts/lib/*.mjs" };
+  for (const imports of [safe, Object.fromEntries(Object.entries(safe).reverse())]) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE("#a/ok.js") }));
+    assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), []);
+  }
+});
+
+test("ST-07 Codex P1: a mapped specifier may contain a quote character other than its delimiter, or an escaped delimiter", () => {
+  const cases = {
+    "single quote inside double quotes": [{ "#foo'x": "./test/policy-helper.mjs" }, `import { h } from "#foo'x";`],
+    "double quote inside single quotes": [{ '#foo"x': "./test/policy-helper.mjs" }, `import { h } from '#foo"x';`],
+    "escaped delimiter inside the specifier": [{ '#foo"x': "./test/policy-helper.mjs" }, String.raw`import { h } from "#foo\"x";`],
+    "after a stray apostrophe in a comment": [{ "#h": "./test/policy-helper.mjs" }, `// don't skip this\nimport { h } from "#h";`],
+  };
+  for (const [label, [imports, line]] of Object.entries(cases)) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": line + "\n" }));
+    assert.ok(current.some((m) => m.startsWith("scripts/user.mjs: ") && m.includes(line.split("\n").pop())), `${label}: not reported (got ${JSON.stringify(current)})`);
+  }
+  const { current } = bothScanners(mapTree({ "#foo'*": "./scripts/lib/*" }, { "scripts/user.mjs": `import "#foo'ok.mjs";\n` }));
+  assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), []);
+});
+
+test("ST-07 Codex P1: backslashes in an import target are separators, so they cannot hide a root-test helper", () => {
+  const cases = {
+    "backslash separator": [{ "#helper": ".\\test\\policy-helper.mjs" }, "#helper"],
+    "mixed separators": [{ "#helper": "./test\\policy-helper.mjs" }, "#helper"],
+    "percent-encoded backslash": [{ "#helper": "./test%5Cpolicy-helper.mjs" }, "#helper"],
+    "backslash dot-dot stays invalid": [{ "#helper": "./scripts\\..\\test\\policy-helper.mjs" }, "#helper"],
+  };
+  for (const [label, [imports, spec]] of Object.entries(cases)) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) }));
+    const reported = current.includes(usage("scripts/user.mjs", spec));
+    assert.equal(reported, !label.includes("stays invalid"), `${label}: ${JSON.stringify(current)}`);
+  }
 });
