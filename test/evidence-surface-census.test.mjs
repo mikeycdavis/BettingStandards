@@ -1934,7 +1934,7 @@ function policyLoaderMentions(sources, manifests = {}) {
       const intoTests = variants.some((v) => /["'`](?:[^"'`]*[/\\])?test[/\\][^"'`]*["'`]/.test(v));
       // A quoted `#specifier` that the nearest package scope's `imports` map routes to a root-test helper
       // or to the policy module.
-      const mapped = variants.some((v) => quotedSpecifiers(v).some((s) => importMapRoutesToExcluded(s, scope)));
+      const mapped = quotedSpecifiers(physical.join("\n")).some((s) => importMapRoutesToExcluded(s, scope));
       if (named || escaped || intoTests || mapped) mentions.push(`${file}: ${raw}`);
     }
   }
@@ -2001,9 +2001,22 @@ function logicalLines(text) {
 }
 
 /** Every quoted string's content on a (resolved) line that starts with `#`: a package-import specifier. */
-function quotedSpecifiers(line) {
+function quotedSpecifiers(text) {
+  // Parsed against the RAW text relative to each string's own delimiter: another quote character may sit
+  // inside it, and an escaped delimiter does not end it. Every quote is tried as a start, so a stray
+  // apostrophe in a comment cannot swallow a real specifier; the content is then escape-resolved.
+  const strings = { '"': /"((?:\\[\s\S]|[^"\\])*)"/y, "'": /'((?:\\[\s\S]|[^'\\])*)'/y, "`": /`((?:\\[\s\S]|[^`\\])*)`/y };
   const out = [];
-  for (const m of line.matchAll(/(["'`])([^"'`]*)\1/g)) if (m[2].startsWith("#")) out.push(m[2]);
+  for (let i = 0; i < text.length; i += 1) {
+    const re = strings[text[i]];
+    if (re === undefined) continue;
+    re.lastIndex = i;
+    const m = re.exec(text);
+    if (m !== null) {
+      const content = resolveEscapes(m[1]);
+      if (content.startsWith("#")) out.push(content);
+    }
+  }
   return out;
 }
 
@@ -2534,4 +2547,19 @@ test("ST-07 Codex P1: equal-prefix pattern keys are tied by the longer key, as N
     const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE("#a/ok.js") }));
     assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), []);
   }
+});
+
+test("ST-07 Codex P1: a mapped specifier may contain a quote character other than its delimiter, or an escaped delimiter", () => {
+  const cases = {
+    "single quote inside double quotes": [{ "#foo'x": "./test/policy-helper.mjs" }, `import { h } from "#foo'x";`],
+    "double quote inside single quotes": [{ '#foo"x': "./test/policy-helper.mjs" }, `import { h } from '#foo"x';`],
+    "escaped delimiter inside the specifier": [{ '#foo"x': "./test/policy-helper.mjs" }, String.raw`import { h } from "#foo\"x";`],
+    "after a stray apostrophe in a comment": [{ "#h": "./test/policy-helper.mjs" }, `// don't skip this\nimport { h } from "#h";`],
+  };
+  for (const [label, [imports, line]] of Object.entries(cases)) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": line + "\n" }));
+    assert.ok(current.some((m) => m.startsWith("scripts/user.mjs: ") && m.includes(line.split("\n").pop())), `${label}: not reported (got ${JSON.stringify(current)})`);
+  }
+  const { current } = bothScanners(mapTree({ "#foo'*": "./scripts/lib/*" }, { "scripts/user.mjs": `import "#foo'ok.mjs";\n` }));
+  assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), []);
 });
