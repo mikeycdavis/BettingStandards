@@ -2047,15 +2047,16 @@ function importTargets(target) {
  * A `*` is left in place.
  */
 function resolveImportTarget(dir, target) {
-  if (!target.startsWith("./")) return null;
-  // A target is a URL: Node drops a query or fragment and percent-decodes the path.
+  // A target is a URL: Node drops a query or fragment and percent-decodes the path. A backslash is a
+  // path separator to a file URL on Windows, so it is read as one (conservatively, on every host).
   let pathPart = target.replace(/[?#][\s\S]*$/, "");
   try {
     pathPart = decodeURIComponent(pathPart);
   } catch {
     // keep the undecoded text: it is still tested
   }
-  target = pathPart;
+  target = pathPart.replaceAll("\\", "/");
+  if (!target.startsWith("./")) return null;
   const segments = target.slice(2).split("/");
   if (segments.some((s) => s === ".." || s === "." || s.toLowerCase() === "node_modules")) return null;
   return path.posix.normalize(dir ? `${dir}/${target.slice(2)}` : target.slice(2));
@@ -2562,4 +2563,18 @@ test("ST-07 Codex P1: a mapped specifier may contain a quote character other tha
   }
   const { current } = bothScanners(mapTree({ "#foo'*": "./scripts/lib/*" }, { "scripts/user.mjs": `import "#foo'ok.mjs";\n` }));
   assert.deepEqual(current.filter((m) => m.startsWith("scripts/")), []);
+});
+
+test("ST-07 Codex P1: backslashes in an import target are separators, so they cannot hide a root-test helper", () => {
+  const cases = {
+    "backslash separator": [{ "#helper": ".\\test\\policy-helper.mjs" }, "#helper"],
+    "mixed separators": [{ "#helper": "./test\\policy-helper.mjs" }, "#helper"],
+    "percent-encoded backslash": [{ "#helper": "./test%5Cpolicy-helper.mjs" }, "#helper"],
+    "backslash dot-dot stays invalid": [{ "#helper": "./scripts\\..\\test\\policy-helper.mjs" }, "#helper"],
+  };
+  for (const [label, [imports, spec]] of Object.entries(cases)) {
+    const { current } = bothScanners(mapTree(imports, { "scripts/user.mjs": MAP_SOURCE(spec) }));
+    const reported = current.includes(usage("scripts/user.mjs", spec));
+    assert.equal(reported, !label.includes("stays invalid"), `${label}: ${JSON.stringify(current)}`);
+  }
 });
