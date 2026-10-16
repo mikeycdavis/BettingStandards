@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "source": "mikeycdavis/BettingStandards",
+  "target": "mikeycdavis/BettingStandards",
+  "authority": "github",
+  "switchedAt": "2026-09-28",
+  "verifiedBy": "started in GitHub; there was nothing to migrate",
+  "items": {},
+  "recovery": "There were never item files. The issues are the only record."
+}
