@@ -1156,6 +1156,7 @@ const NON_JS_CENSUS = [
     match: /^(rules\/[^/]+\.json|schemas\/[^/]+\.json|betting-policy\.yml|project-policy\.yml|artifacts\/standards-source-inventory\.json|standards-adapter\.json)$/,
     why: "data that the guarded loaders read. A file cannot judge a subject; what reads it can, and is classified above.",
   },
+  { kind: "backlog-mapping", match: /^artifacts\/backlog\/github-mapping\.json$/, why: "records that GitHub Issues are the backlog authority. Inert metadata for the backlog tooling; no evaluation reads it." },
   { kind: "template-or-example", match: /^(templates|examples)\//, why: "copied into adopting projects, or worked examples read by the guarded checks." },
   { kind: "fixture", match: /^test\/fixtures\//, why: "test inputs." },
   { kind: "prose", match: /\.(md|mmd)$|^(VERSION|\.gitignore|\.gitattributes)$|^standards\/|^design\//, why: "documentation and metadata. Not read as input to any evaluation." },
