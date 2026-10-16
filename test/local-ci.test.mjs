@@ -403,6 +403,21 @@ describe("submit-pr refuses to publish an unverified commit", { skip }, () => {
 // were baked into the image and its cache. `.dockerignore` cannot close that: it cannot know what a
 // developer's private excludes say. The context is therefore staged from git's own view of the tree.
 
+describe("compose.ci.yml mounts nothing from the host", () => {
+  test("declares no volumes or bind mounts, so the evidence mount cannot return", () => {
+    // The evidence file was once bind-mounted from ./artifacts/local-ci, which fails where the host
+    // directory is not writable by the container's uid 1000. The result is now copied out with
+    // `docker cp`; a mount reintroduced here fails this test rather than a last pipeline step.
+    const code = readFileSync(path.join(ROOT, "compose.ci.yml"), "utf8")
+      .split(/\r?\n/)
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+    assert.doesNotMatch(code, /^\s*volumes(_from)?\s*:/m, "compose.ci.yml declares volumes or volumes_from");
+    assert.doesNotMatch(code, /^\s*type\s*:\s*bind\b/m, "compose.ci.yml declares a bind mount");
+    assert.doesNotMatch(code, /^\s*-\s*["']?\.{0,2}\/[^\s"']*:[^\s"']+/m, "compose.ci.yml declares a host-path mount");
+  });
+});
+
 describe("the CI build context is staged from the tree git sees", () => {
   test("compose.ci.yml builds from a staged context and refuses to default to the working directory", () => {
     const compose = readFileSync(path.join(ROOT, "compose.ci.yml"), "utf8");
