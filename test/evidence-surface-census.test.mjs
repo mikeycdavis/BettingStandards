@@ -2478,7 +2478,9 @@ test("ST-07 AC2: the map entry itself is reported, and unsupported forms are nam
   const { current } = bothScanners(mapTree({ "#policy-helper": "./test/policy-helper.mjs", "#lib": "./scripts/lib/ok.mjs" }));
   assert.deepEqual(current, ['package.json: imports["#policy-helper"] -> ./test/policy-helper.mjs']);
   // Not modelled, and not claimed: the package's own `exports` self-reference, bare-package and URL
-  // targets, loader flags and conditions, and specifiers built at run time. A folder key ("#dir/") is
+  // targets, loader flags and conditions, specifiers built at run time, and percent-encoded relative
+  // module specifiers in shipped source (for example `import "./scripts/%70olicy.mjs"`; percent-decoding
+  // is applied to import-map targets only). A folder key ("#dir/") is
   // reported at the map entry only, never at a use, because Node no longer resolves it.
   const silent = mapTree(
     {},
@@ -2488,6 +2490,21 @@ test("ST-07 AC2: the map entry itself is reported, and unsupported forms are nam
     },
   );
   assert.deepEqual(bothScanners(silent).current, ['package.json: imports["#dir/"] -> ./test/']);
+});
+
+test("ST-08: a percent-encoded relative module specifier is a documented limit, not complete module resolution", () => {
+  const files = {
+    "scripts/policy.mjs": "const a = 1;\n",
+    "test/policy-helper.mjs": "export const h = 1;\n",
+    "scripts/x.mjs": 'import "./scripts/%70olicy.mjs";\n',
+  };
+  const got = bothScanners(files);
+  const why =
+    'DOCUMENTED LIMIT (ST-08): `import "./scripts/%70olicy.mjs"` is not percent-decoded by the scanner, so it is not reported. ' +
+    "This pins current behaviour only; it does not claim the census models complete module resolution. " +
+    "If the scanner now reports it, update this test and the 'Not modelled, and not claimed' comment together.";
+  assert.deepEqual(got.current, [], why);
+  assert.deepEqual(got.delivered, [], why);
 });
 
 test("ST-07 AC3/AC5: a manifest that cannot be parsed throws, and only shipped package scopes are read", () => {
